@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import bcrypt from 'bcryptjs';
+import { execSync } from 'child_process';
 import {
   syncUserToSupabase,
   syncProjectToSupabase,
@@ -1679,6 +1680,30 @@ class RelationalDatabase {
       }
     );
 
+    // Real physical file write on VPS for execution isolated cgroups run
+    try {
+      const botsBaseDir = '/var/telebot-data/bots';
+      if (fs.existsSync(botsBaseDir)) {
+        const botDir = path.join(botsBaseDir, botId);
+        fs.mkdirSync(botDir, { recursive: true });
+        
+        const fullDiskPath = path.join(botDir, filePath);
+        fs.mkdirSync(path.dirname(fullDiskPath), { recursive: true });
+        
+        fs.writeFileSync(fullDiskPath, content, 'utf-8');
+        
+        // Ownership to telebot-runner (UID 10001, GID 10001) for isolated sandbox execution
+        try {
+          fs.chownSync(fullDiskPath, 10001, 10001);
+          execSync(`chown -R 10001:10001 "${botDir}"`);
+        } catch (chownErr) {
+          // ignore if running in environment without telebot-runner user
+        }
+      }
+    } catch (diskErr) {
+      console.warn('[VPS Storage Warning] Failed to write bot file to VPS storage:', diskErr);
+    }
+
     this.save();
     return { file: savedFile, totalStorageMB: totalMB, validation: validationResult };
   }
@@ -1690,6 +1715,18 @@ class RelationalDatabase {
     this.data.files = this.data.files.filter(
       (f) => !(f.bot_id === botId && f.user_id === userId && f.file_path === filePath)
     );
+
+    // Real physical file delete on VPS
+    try {
+      const botsBaseDir = '/var/telebot-data/bots';
+      const fullDiskPath = path.join(botsBaseDir, botId, filePath);
+      if (fs.existsSync(fullDiskPath)) {
+        fs.unlinkSync(fullDiskPath);
+      }
+    } catch (diskErr) {
+      console.warn('[VPS Storage Warning] Failed to delete bot file from VPS storage:', diskErr);
+    }
+
     this.save();
   }
 
@@ -2589,6 +2626,18 @@ class RelationalDatabase {
 
   getAllBots(): DBTelegramBot[] {
     return [...this.data.bots];
+  }
+
+  getBotDirect(botId: string): DBTelegramBot | undefined {
+    return this.data.bots.find((b) => b.id === botId);
+  }
+
+  getBotFilesDirect(botId: string): DBBotFile[] {
+    return this.data.files.filter((f) => f.bot_id === botId);
+  }
+
+  getBotEnvVarsDirect(botId: string): DBBotEnvVar[] {
+    return this.data.env_vars.filter((ev) => ev.bot_id === botId);
   }
 
   getAllSubscriptions(): DBSubscription[] {

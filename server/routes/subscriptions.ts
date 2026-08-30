@@ -386,12 +386,6 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
       return;
     }
 
-    // In a real production environment, you MUST call Cashfree API here to verify the payment status:
-    // const response = await fetch(`https://api.cashfree.com/pg/orders/${orderId}`, { headers: { 'x-client-id': env, 'x-client-secret': env }});
-    // const cfOrder = await response.json();
-    // if (cfOrder.order_status !== 'PAID') throw new Error('Payment not verified');
-    // For this simulation, we'll enforce that the order belongs to the user
-    
     const order = db.getOrder(orderId);
     if (!order || order.user_id !== req.user!.id) {
        res.status(404).json({ error: 'Order not found' });
@@ -409,8 +403,64 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
       return;
     }
 
-    // Security check: Since we are mocking the cashfree backend in this environment,
-    // we assume success if it reached here, but in production this should only happen if Cashfree API returns PAID.
+    // --- REAL PRODUCTION CASHFREE API VERIFICATION ---
+    const cfClientId = process.env.CASHFREE_APP_ID || process.env.CASHFREE_CLIENT_ID;
+    const cfClientSecret = process.env.CASHFREE_SECRET_KEY || process.env.CASHFREE_CLIENT_SECRET;
+    const isProd = process.env.NODE_ENV === 'production' || process.env.CASHFREE_ENV === 'PRODUCTION';
+
+    if (cfClientId && cfClientSecret) {
+      try {
+        const url = isProd 
+          ? `https://api.cashfree.com/pg/orders/${orderId}`
+          : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
+          
+        console.log(`[Cashfree Verify] Requesting status for order: ${orderId} on ${url}`);
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'x-client-id': cfClientId,
+            'x-client-secret': cfClientSecret,
+            'x-api-version': '2023-08-01',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error(`Cashfree returned HTTP ${response.status}`);
+        }
+        
+        const cfOrder = await response.json();
+        console.log('[Cashfree Verify] API Response:', cfOrder);
+        
+        if (cfOrder.order_status === 'PAID') {
+          const result = db.verifyAndCompleteOrder(
+            orderId, 
+            cfOrder.payment_session_id || 'cashfree', 
+            'cf_pay_' + (cfOrder.cf_order_id || Date.now())
+          );
+          
+          res.json({
+            success: true,
+            order: result.order,
+            subscription: result.subscription,
+            message: `Payment confirmed securely! Subscription active on ${result.subscription.plan_name}.`,
+          });
+          return;
+        } else {
+          res.status(400).json({ 
+            error: `Payment is not completed. Cashfree status: ${cfOrder.order_status}. Please complete the payment flow and click verify.` 
+          });
+          return;
+        }
+      } catch (cfErr: any) {
+        console.error('[Cashfree Verify Error]', cfErr);
+        res.status(400).json({ error: `Cashfree gateway verification failed: ${cfErr.message || cfErr}` });
+        return;
+      }
+    }
+
+    // Sandbox/simulation fallback if Cashfree keys are not set in environment
     const result = db.verifyAndCompleteOrder(orderId, 'cashfree_api_verified', 'cf_pay_simulated_' + Date.now());
 
     res.json({

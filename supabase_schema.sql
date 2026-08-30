@@ -8,7 +8,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- 1. USERS & ROLES TABLE
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(100) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(150) NOT NULL,
@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS hosting_plans (
 
 -- 3. USER SUBSCRIPTIONS TABLE
 CREATE TABLE IF NOT EXISTS user_subscriptions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id VARCHAR(100) PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     plan_id VARCHAR(50) NOT NULL REFERENCES hosting_plans(id),
     status VARCHAR(30) DEFAULT 'trial' CHECK (status IN ('trial', 'active', 'past_due', 'cancelled', 'expired')),
     start_date TIMESTAMPTZ DEFAULT NOW(),
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
 -- 4. BOTS DATABASE TABLE
 CREATE TABLE IF NOT EXISTS telegram_bots (
     id VARCHAR(50) PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name VARCHAR(150) NOT NULL,
     username VARCHAR(100) NOT NULL,
     framework VARCHAR(50) NOT NULL,
@@ -86,9 +86,9 @@ CREATE TABLE IF NOT EXISTS telegram_bots (
 
 -- 5. BOT ENVIRONMENT VARIABLES TABLE (SECURE KEY-VALUES)
 CREATE TABLE IF NOT EXISTS bot_env_vars (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(100) PRIMARY KEY,
     bot_id VARCHAR(50) NOT NULL REFERENCES telegram_bots(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     key VARCHAR(255) NOT NULL,
     value TEXT NOT NULL,
     is_secret BOOLEAN DEFAULT TRUE,
@@ -99,9 +99,9 @@ CREATE TABLE IF NOT EXISTS bot_env_vars (
 
 -- 6. BOT FILES METADATA & CONTENT TABLE
 CREATE TABLE IF NOT EXISTS bot_files (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(100) PRIMARY KEY,
     bot_id VARCHAR(50) NOT NULL REFERENCES telegram_bots(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     file_path VARCHAR(500) NOT NULL,
     file_name VARCHAR(255) NOT NULL,
     file_size_bytes BIGINT NOT NULL DEFAULT 0,
@@ -115,9 +115,9 @@ CREATE TABLE IF NOT EXISTS bot_files (
 
 -- 7. BOT LOGS TABLE
 CREATE TABLE IF NOT EXISTS bot_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(100) PRIMARY KEY,
     bot_id VARCHAR(50) NOT NULL REFERENCES telegram_bots(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     level VARCHAR(20) DEFAULT 'info' CHECK (level IN ('info', 'warn', 'error', 'debug', 'system')),
     message TEXT NOT NULL,
     timestamp TIMESTAMPTZ DEFAULT NOW()
@@ -125,9 +125,9 @@ CREATE TABLE IF NOT EXISTS bot_logs (
 
 -- 8. BOT PERFORMANCE METRICS TIME-SERIES TABLE
 CREATE TABLE IF NOT EXISTS bot_metrics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id VARCHAR(100) PRIMARY KEY,
     bot_id VARCHAR(50) NOT NULL REFERENCES telegram_bots(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     cpu_percent NUMERIC(5,2) NOT NULL DEFAULT 0,
     ram_mb INTEGER NOT NULL DEFAULT 0,
     recorded_at TIMESTAMPTZ DEFAULT NOW()
@@ -135,8 +135,8 @@ CREATE TABLE IF NOT EXISTS bot_metrics (
 
 -- 9. ACTIVITY & AUDIT LOGS TABLE
 CREATE TABLE IF NOT EXISTS activity_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id VARCHAR(100) PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     action VARCHAR(100) NOT NULL,
     target_type VARCHAR(50),
     target_id VARCHAR(100),
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
 -- 10. ORDERS & PAYMENT RECORDS TABLE
 CREATE TABLE IF NOT EXISTS orders (
     order_id VARCHAR(100) PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     plan_id VARCHAR(50) NOT NULL REFERENCES hosting_plans(id),
     plan_name VARCHAR(100) NOT NULL,
     billing_interval VARCHAR(20) NOT NULL CHECK (billing_interval IN ('monthly', 'yearly')),
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS orders (
 -- 11. SUPPORT TICKETS TABLE
 CREATE TABLE IF NOT EXISTS support_tickets (
     id VARCHAR(50) PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     subject VARCHAR(255) NOT NULL,
     category VARCHAR(50) NOT NULL,
     priority VARCHAR(20) DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
