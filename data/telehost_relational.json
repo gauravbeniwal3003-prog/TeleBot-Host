@@ -1,0 +1,271 @@
+{
+  "users": [
+    {
+      "id": "usr_super_admin_001",
+      "email": "admin@telebothost.com",
+      "password_hash": "$2b$10$Pegdv5AHFZ3SPTKKIuS1AOqCOM9J2tDTUW0pnA.ypNCqTXqfgBJF6",
+      "name": "TeleBot Host SuperAdmin",
+      "telegram_username": "@telebothost_admin",
+      "role": "admin",
+      "status": "active",
+      "is_verified": true,
+      "created_at": "2026-08-30T08:40:53.236Z",
+      "updated_at": "2026-08-30T08:40:53.236Z"
+    },
+    {
+      "id": "usr_73237977",
+      "email": "gauravbeniwal30003@gmail.com",
+      "password_hash": "$2b$10$PX1WNIF7lgkomnfWT..QB.vFXGJVJzNWAJdTuUprWCtXcjv3e4Wha",
+      "name": "Gaurav beniwal",
+      "telegram_username": "@gaurav_beniwal",
+      "role": "user",
+      "is_verified": true,
+      "created_at": "2026-08-30T08:42:49.830Z",
+      "updated_at": "2026-08-30T08:43:49.837Z",
+      "status": "active"
+    },
+    {
+      "id": "usr_76601267",
+      "email": "supa_real_user@example.com",
+      "password_hash": "$2b$10$Us7c4lsmh/hdIlJ.HIx6Tu3uXw9cfB8qI2TXtDTlJ1tfGsT2oFI5u",
+      "name": "Gaurav Supabase",
+      "telegram_username": "@gaurav_supabase",
+      "role": "user",
+      "is_verified": true,
+      "created_at": "2026-08-30T09:08:48.822Z",
+      "updated_at": "2026-08-30T09:08:48.822Z"
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj_admin_default",
+      "user_id": "usr_super_admin_001",
+      "name": "Admin Workspace",
+      "created_at": "2026-08-30T08:40:53.236Z",
+      "updated_at": "2026-08-30T08:40:53.236Z"
+    },
+    {
+      "id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "name": "My Telegram Bots",
+      "created_at": "2026-08-30T08:42:49.830Z",
+      "updated_at": "2026-08-30T08:42:49.830Z"
+    },
+    {
+      "id": "proj_94428846",
+      "user_id": "usr_76601267",
+      "name": "My Telegram Bots",
+      "created_at": "2026-08-30T09:08:48.822Z",
+      "updated_at": "2026-08-30T09:08:48.822Z"
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "sub_admin_cluster_001",
+      "user_id": "usr_super_admin_001",
+      "project_id": "proj_admin_default",
+      "plan_id": "cluster",
+      "plan_name": "Cluster Enterprise Plan",
+      "status": "active",
+      "start_date": "2026-08-30T08:40:53.236Z",
+      "expiry_date": "2027-08-30T08:40:53.236Z",
+      "auto_renew": true,
+      "total_bot_slots": 20,
+      "ram_limit_mb": 8192,
+      "storage_limit_gb": 100,
+      "created_at": "2026-08-30T08:40:53.236Z",
+      "updated_at": "2026-08-30T08:40:53.236Z"
+    },
+    {
+      "id": "sub_843937",
+      "user_id": "usr_73237977",
+      "project_id": "proj_73651666",
+      "plan_id": "starter",
+      "plan_name": "Starter Bot Plan (Free Trial)",
+      "status": "trial",
+      "trial_started": false,
+      "trial_started_at": null,
+      "start_date": "",
+      "expiry_date": "",
+      "auto_renew": false,
+      "total_bot_slots": 1,
+      "ram_limit_mb": 512,
+      "storage_limit_gb": 0.05,
+      "db_storage_mb": 50,
+      "max_file_size_mb": 5,
+      "created_at": "2026-08-30T08:42:49.830Z",
+      "updated_at": "2026-08-30T08:42:49.830Z"
+    },
+    {
+      "id": "sub_107579",
+      "user_id": "usr_76601267",
+      "project_id": "proj_94428846",
+      "plan_id": "starter",
+      "plan_name": "Starter Bot Plan (Free Trial)",
+      "status": "trial",
+      "trial_started": false,
+      "trial_started_at": null,
+      "start_date": "",
+      "expiry_date": "",
+      "auto_renew": false,
+      "total_bot_slots": 1,
+      "ram_limit_mb": 512,
+      "storage_limit_gb": 0.05,
+      "db_storage_mb": 50,
+      "max_file_size_mb": 5,
+      "created_at": "2026-08-30T09:08:48.822Z",
+      "updated_at": "2026-08-30T09:08:48.822Z"
+    }
+  ],
+  "bots": [],
+  "env_vars": [],
+  "files": [],
+  "logs": [],
+  "activity_logs": [
+    {
+      "user_id": "usr_76601267",
+      "action": "user.register",
+      "target_type": "user",
+      "target_id": "usr_76601267",
+      "details": {
+        "email": "supa_real_user@example.com",
+        "plan": "starter_trial"
+      },
+      "id": "act_1788080928825_420",
+      "created_at": "2026-08-30T09:08:48.825Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "user.register",
+      "target_type": "user",
+      "target_id": "usr_73237977",
+      "details": {
+        "email": "gauravbeniwal30003@gmail.com",
+        "plan": "starter_trial"
+      },
+      "id": "act_1788079369833_688",
+      "created_at": "2026-08-30T08:42:49.833Z"
+    },
+    {
+      "id": "act_init_sys",
+      "user_id": "usr_super_admin_001",
+      "action": "system.initialized",
+      "target_type": "system",
+      "ip_address": "127.0.0.1",
+      "created_at": "2026-08-30T08:40:53.236Z"
+    }
+  ],
+  "orders": [],
+  "tickets": [],
+  "pricing_config": {
+    "basePricePerBotMonthlyINR": 49,
+    "inrToUsdRate": 83.5,
+    "taxRatePercent": 0,
+    "customSlidersEnabled": true,
+    "couponsEnabled": true,
+    "botPricingTiers": [
+      {
+        "count": 1,
+        "label": "1 Bot",
+        "monthlyPriceINR": 49,
+        "enabled": true
+      },
+      {
+        "count": 2,
+        "label": "2 Bots",
+        "monthlyPriceINR": 98,
+        "enabled": true
+      },
+      {
+        "count": 3,
+        "label": "3 Bots",
+        "monthlyPriceINR": 147,
+        "isPopular": true,
+        "enabled": true
+      },
+      {
+        "count": 5,
+        "label": "5 Bots",
+        "monthlyPriceINR": 245,
+        "enabled": true
+      }
+    ],
+    "botTierDiscounts": [
+      {
+        "minBots": 1,
+        "maxBots": 9999,
+        "discountPercent": 0,
+        "label": "Flat Rs 49/bot",
+        "enabled": true
+      }
+    ],
+    "fileSizeTierCostsINR": [
+      {
+        "sizeMB": 200,
+        "label": "200 MB (Default Included)",
+        "monthlyCostINR": 0,
+        "enabled": true
+      }
+    ],
+    "storageTiersINR": [
+      {
+        "storageMB": 200,
+        "label": "200 MB (Included in Rs 49/mo)",
+        "monthlyCostINR": 0,
+        "enabled": true
+      },
+      {
+        "storageMB": 500,
+        "label": "500 MB (+Rs 30/mo)",
+        "monthlyCostINR": 30,
+        "enabled": true
+      },
+      {
+        "storageMB": 1024,
+        "label": "1 GB (+Rs 70/mo)",
+        "monthlyCostINR": 70,
+        "enabled": true
+      },
+      {
+        "storageMB": 2048,
+        "label": "2 GB (+Rs 150/mo)",
+        "monthlyCostINR": 150,
+        "enabled": true
+      },
+      {
+        "storageMB": 5120,
+        "label": "5 GB (+Rs 350/mo)",
+        "monthlyCostINR": 350,
+        "enabled": true
+      }
+    ],
+    "customStorageCostPerGBMonthlyINR": 45,
+    "durationDiscounts": [
+      {
+        "days": 30,
+        "label": "1 Month (Rs 49/mo)",
+        "discountPercent": 0,
+        "isDefault": true,
+        "enabled": true
+      },
+      {
+        "days": 90,
+        "label": "3 Months (Save 10%)",
+        "discountPercent": 10,
+        "enabled": true
+      },
+      {
+        "days": 180,
+        "label": "6 Months (Save 15%)",
+        "discountPercent": 15,
+        "enabled": true
+      },
+      {
+        "days": 365,
+        "label": "1 Year (Save 25%)",
+        "discountPercent": 25,
+        "enabled": true
+      }
+    ]
+  }
+}

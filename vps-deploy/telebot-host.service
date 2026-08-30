@@ -1,0 +1,25 @@
+[Unit]
+Description=TeleBot Host Automated VPS Bot Manager & Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/telebot-host
+ExecStart=/usr/bin/node dist/server.cjs
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=VPS_HARDWARE="Intel Xeon Platinum 8168 CPU @ 2.70GHz"
+Environment=VPS_OS="Ubuntu 24.04.3 LTS"
+Environment=CASHFREE_APP_ID="your_cashfree_app_id"
+Environment=CASHFREE_SECRET_KEY="your_cashfree_secret_key"
+Environment=CASHFREE_ENV="PROD"
+
+# Security & Process Limits
+LimitNOFILE=65536
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target

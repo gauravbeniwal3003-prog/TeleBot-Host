@@ -1,0 +1,7 @@
+{
+  "name": "TeleBot Host",
+  "description": "Production-ready SaaS platform for effortlessly deploying, managing, and scaling Python, Node.js, and Go Telegram bots with persistent storage and high availability.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
