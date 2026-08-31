@@ -42,6 +42,21 @@ export class VPSWorkerClient {
     botRunnerWorker.syncFileToVPS(botId, filePath, content);
   }
 
+  public async listVPSFiles(botId: string): Promise<{ filePath: string, size: number, mtime: string, isDirectory: boolean }[]> {
+    this.authenticate();
+    return botRunnerWorker.listVPSFiles(botId);
+  }
+
+  public async readVPSFile(botId: string, filePath: string): Promise<Buffer | null> {
+    this.authenticate();
+    return botRunnerWorker.readVPSFile(botId, filePath);
+  }
+
+  public async renameVPSFile(botId: string, oldPath: string, newPath: string): Promise<boolean> {
+    this.authenticate();
+    return botRunnerWorker.renameVPSFile(botId, oldPath, newPath);
+  }
+
   /**
    * Provision container sandbox for a new or updated bot
    */

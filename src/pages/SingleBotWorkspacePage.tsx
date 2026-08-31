@@ -13,6 +13,8 @@ import {
   RefreshCw,
   Upload,
   Trash2,
+  Download,
+  Edit2,
   AlertCircle,
   AlertTriangle,
   Sliders,
@@ -58,6 +60,8 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   const [selectedUpgradeStorage, setSelectedUpgradeStorage] = useState<string>('1GB');
   const [processingAddon, setProcessingAddon] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<BotFileItem | null>(null);
+  const [fileToRename, setFileToRename] = useState<BotFileItem | null>(null);
+  const [renameValue, setRenameValue] = useState<string>('');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -345,6 +349,43 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       uploadFile(e.target.files[0]);
+    }
+  };
+
+  const handleDownloadFile = async (file: BotFileItem) => {
+    try {
+      const response = await fetch(`/api/bots/${bot.id}/files/download?filePath=${encodeURIComponent(file.filePath)}`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('telebot_token')}` }
+      });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      addToast('success', `Downloaded "${file.fileName}"`);
+    } catch (e: any) {
+      addToast('error', e.message || 'Failed to download file');
+    }
+  };
+
+  const handleRenameFile = async () => {
+    if (!fileToRename || !renameValue.trim()) return;
+    try {
+      const dirPath = fileToRename.filePath.substring(0, fileToRename.filePath.lastIndexOf('/') + 1);
+      const newPath = dirPath + renameValue.trim();
+      await api.renameBotFile(bot.id, fileToRename.filePath, newPath);
+      addToast('success', `Renamed to "${renameValue}"`);
+      fetchBotFilesAndStorage();
+    } catch (e: any) {
+      addToast('error', e.message || 'Failed to rename file');
+    } finally {
+      setFileToRename(null);
+      setRenameValue('');
     }
   };
 
@@ -645,14 +686,32 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
               {files.map((file) => (
                 <div key={file.filePath} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-sky-50 text-[#0088cc] rounded-lg">
+                  <div className="flex items-center gap-3 flex-1">
+                    <div className="p-2 bg-sky-50 text-[#0088cc] rounded-lg shrink-0">
                       <FileCode className="w-4 h-4" />
                     </div>
-                    <div>
-                      <div className="font-bold text-slate-800 text-sm">{file.fileName}</div>
-                      <div className="text-xs text-slate-400">{formatSize(file.fileSizeBytes)}</div>
-                    </div>
+                    {fileToRename?.id === file.id ? (
+                      <div className="flex items-center gap-2 flex-1 max-w-sm">
+                        <input 
+                          type="text" 
+                          value={renameValue} 
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          className="w-full text-sm border-slate-300 rounded-md focus:ring-[#0088cc] focus:border-[#0088cc]"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameFile();
+                            if (e.key === 'Escape') { setFileToRename(null); setRenameValue(''); }
+                          }}
+                        />
+                        <button onClick={handleRenameFile} className="px-2 py-1 bg-emerald-500 text-white text-xs rounded">Save</button>
+                        <button onClick={() => { setFileToRename(null); setRenameValue(''); }} className="px-2 py-1 bg-slate-200 text-slate-700 text-xs rounded">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="min-w-0">
+                        <div className="font-bold text-slate-800 text-sm truncate">{file.fileName}</div>
+                        <div className="text-xs text-slate-400">{formatSize(file.fileSizeBytes)}</div>
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {fileToDelete?.id === file.id ? (
@@ -671,13 +730,29 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => setFileToDelete(file)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                        title="Delete file"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleDownloadFile(file)}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
+                          title="Download file"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => { setFileToRename(file); setRenameValue(file.fileName); }}
+                          className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-colors cursor-pointer"
+                          title="Rename file"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setFileToDelete(file)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title="Delete file"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>

@@ -63,21 +63,30 @@ function getMimeType(fileName: string): string {
 }
 
 // 1. GET ALL FILES AND STORAGE SUMMARY FOR A BOT
-filesRouter.get('/:botId/files', (req: Request, res: Response): void => {
+filesRouter.get('/:botId/files', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
     const botId = req.params.botId;
+
     const bot = db.getBotById(botId, userId);
     if (!bot) {
       res.status(404).json({ error: 'Bot not found or unauthorized' });
       return;
     }
 
-    const files = db.getBotFiles(botId, userId);
-    const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
+    const dbFiles = db.getBotFiles(botId, userId);
+    let vpsFiles: any[] = [];
+    try {
+      vpsFiles = await vpsWorkerClient.listVPSFiles(botId);
+    } catch (e) {
+      console.error('Failed to list VPS files:', e);
+    }
 
-    res.json({
-      files: files.map((f) => ({
+    const mergedFiles = new Map<string, any>();
+    
+    // First load all DB files
+    dbFiles.forEach(f => {
+      mergedFiles.set(f.file_path, {
         id: f.id,
         filePath: f.file_path,
         virtualPath: StorageManager.getVirtualSandboxPath(botId, f.file_path),
@@ -88,7 +97,36 @@ filesRouter.get('/:botId/files', (req: Request, res: Response): void => {
         content: f.content,
         updatedAt: f.updated_at,
         isEntryPoint: f.file_path === bot.entry_point || f.file_name === bot.entry_point,
-      })),
+      });
+    });
+
+    // Then update with VPS physical files, adding any that are missing
+    vpsFiles.forEach(vf => {
+      if (mergedFiles.has(vf.filePath)) {
+        const existing = mergedFiles.get(vf.filePath);
+        existing.fileSizeBytes = vf.size;
+        existing.updatedAt = vf.mtime;
+      } else {
+        const fileName = path.basename(vf.filePath);
+        mergedFiles.set(vf.filePath, {
+          id: `vps_${Buffer.from(vf.filePath).toString('base64')}`,
+          filePath: vf.filePath,
+          virtualPath: StorageManager.getVirtualSandboxPath(botId, vf.filePath),
+          fileName: fileName,
+          fileSizeBytes: vf.size,
+          mimeType: getMimeType(fileName),
+          isDirectory: vf.isDirectory,
+          content: null,
+          updatedAt: vf.mtime,
+          isEntryPoint: vf.filePath === bot.entry_point || fileName === bot.entry_point,
+        });
+      }
+    });
+
+    const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
+
+    res.json({
+      files: Array.from(mergedFiles.values()),
       storageUsageMB: storageSummary.usedStorageMB,
       storageSummary,
       memoryLimitMB: bot.memory_limit_mb || 512,
@@ -274,7 +312,7 @@ filesRouter.post('/:botId/files/upload', async (req: Request, res: Response): Pr
 });
 
 // 5. DOWNLOAD BOT FILE (With safe Content-Disposition, sanitized headers, no host path leak)
-filesRouter.get('/:botId/files/download', (req: Request, res: Response): void => {
+filesRouter.get('/:botId/files/download', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
     const botId = req.params.botId;
@@ -286,23 +324,46 @@ filesRouter.get('/:botId/files/download', (req: Request, res: Response): void =>
     }
 
     const cleanPath = StorageManager.sanitizeFilePath(filePath);
-    const files = db.getBotFiles(botId, userId);
-    const file = files.find((f) => f.file_path === cleanPath || f.file_name === cleanPath);
+    
+    // First try to get it from VPS physical storage
+    let content: Buffer | string | null = null;
+    let fileName = path.basename(cleanPath);
+    let mimeType = getMimeType(fileName);
+    let fileFound = false;
 
-    if (!file) {
-      res.status(404).json({ error: `File "${cleanPath}" not found in bot sandbox` });
-      return;
+    try {
+      const buffer = await vpsWorkerClient.readVPSFile(botId, cleanPath);
+      if (buffer) {
+        content = buffer;
+        fileFound = true;
+      }
+    } catch (e) {
+      console.error('Failed to read from VPS:', e);
     }
 
-    const safeDownloadName = file.file_name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const mime = file.mime_type || getMimeType(safeDownloadName);
+    // If not found on VPS (or error), fallback to DB
+    if (!fileFound) {
+      const files = db.getBotFiles(botId, userId);
+      const file = files.find((f) => f.file_path === cleanPath || f.file_name === cleanPath);
+      
+      if (!file) {
+        res.status(404).json({ error: `File "${cleanPath}" not found in bot sandbox` });
+        return;
+      }
+      
+      content = file.content || '';
+      fileName = file.file_name;
+      mimeType = file.mime_type || getMimeType(fileName);
+    }
 
-    res.setHeader('Content-Type', `${mime}; charset=utf-8`);
+    const safeDownloadName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    
+    res.setHeader('Content-Type', `${mimeType}`);
     res.setHeader('Content-Disposition', `attachment; filename="${safeDownloadName}"`);
-    res.setHeader('X-Virtual-Sandbox-Path', StorageManager.getVirtualSandboxPath(botId, file.file_path));
+    res.setHeader('X-Virtual-Sandbox-Path', StorageManager.getVirtualSandboxPath(botId, cleanPath));
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-
-    res.send(file.content || '');
+    
+    res.send(content);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to download file' });
   }
@@ -396,7 +457,52 @@ filesRouter.delete('/:botId/files', (req: Request, res: Response): void => {
   }
 });
 
-// 8. STORAGE CLEANUP TRIGGER & AUDIT
+// 8. RENAME BOT FILE
+filesRouter.post('/:botId/files/rename', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const botId = req.params.botId;
+    const { oldPath, newPath } = req.body;
+
+    if (!oldPath || !newPath) {
+      res.status(400).json({ error: 'oldPath and newPath are required' });
+      return;
+    }
+
+    const cleanOldPath = StorageManager.sanitizeFilePath(oldPath);
+    const cleanNewPath = StorageManager.sanitizeFilePath(newPath);
+
+    // Try to rename on VPS first
+    let vpsSuccess = false;
+    try {
+      vpsSuccess = await vpsWorkerClient.renameVPSFile(botId, cleanOldPath, cleanNewPath);
+    } catch (e) {
+      console.error('Failed to rename VPS file:', e);
+    }
+
+    // Rename in DB if it exists
+    const files = db.getBotFiles(botId, userId);
+    const file = files.find((f) => f.file_path === cleanOldPath || f.file_name === cleanOldPath);
+    
+    if (file) {
+      db.updateBotFile(file.id, userId, {
+        file_path: cleanNewPath,
+        file_name: path.basename(cleanNewPath)
+      });
+    }
+
+    if (!vpsSuccess && !file) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+
+    res.json({ success: true, message: 'File renamed successfully' });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Failed to rename file' });
+  }
+});
+
+// 9. STORAGE CLEANUP TRIGGER & AUDIT
 filesRouter.post('/storage/cleanup-job', requireAdmin, (req: Request, res: Response): void => {
   try {
     const report = StorageManager.runStorageCleanupJob();

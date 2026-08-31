@@ -370,6 +370,17 @@ class ApiService {
     });
   }
 
+  async renameBotFile(
+    botId: string,
+    oldPath: string,
+    newPath: string
+  ): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>(`/api/bots/${botId}/files/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ oldPath, newPath }),
+    });
+  }
+
   async replaceBotFile(
     botId: string,
     targetFilePath: string,

@@ -165,6 +165,74 @@ export class BotRunnerWorker extends EventEmitter {
     }
   }
 
+  public listVPSFiles(botId: string): { filePath: string, size: number, mtime: string, isDirectory: boolean }[] {
+    const isVPS = fs.existsSync('/var/telebot-data/bots');
+    const basePath = isVPS ? `/var/telebot-data/bots/${botId}` : `/tmp/telebot-sandbox-${botId}`;
+    if (!fs.existsSync(basePath)) return [];
+
+    const fileList: { filePath: string, size: number, mtime: string, isDirectory: boolean }[] = [];
+    
+    const scanDir = (currentPath: string, relativePath: string) => {
+      if (!fs.existsSync(currentPath)) return;
+      const items = fs.readdirSync(currentPath);
+      for (const item of items) {
+        if (item === '.env' || item === '.req_hash' || item === '__pycache__') continue;
+        const fullItemPath = path.join(currentPath, item);
+        const relItemPath = relativePath ? path.join(relativePath, item) : item;
+        const stat = fs.statSync(fullItemPath);
+        
+        fileList.push({
+          filePath: relItemPath,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+          isDirectory: stat.isDirectory()
+        });
+
+        if (stat.isDirectory()) {
+          scanDir(fullItemPath, relItemPath);
+        }
+      }
+    };
+
+    try {
+      scanDir(basePath, '');
+    } catch (e) {
+      console.error('Error scanning vps files:', e);
+    }
+    
+    return fileList;
+  }
+
+  public readVPSFile(botId: string, filePath: string): Buffer | null {
+    const isVPS = fs.existsSync('/var/telebot-data/bots');
+    const basePath = isVPS ? `/var/telebot-data/bots/${botId}` : `/tmp/telebot-sandbox-${botId}`;
+    const fullPath = path.join(basePath, filePath);
+    if (!fullPath.startsWith(basePath) || !fs.existsSync(fullPath)) return null;
+    const stat = fs.statSync(fullPath);
+    if (stat.isDirectory()) return null;
+    try {
+      return fs.readFileSync(fullPath);
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  public renameVPSFile(botId: string, oldPath: string, newPath: string): boolean {
+    const isVPS = fs.existsSync('/var/telebot-data/bots');
+    const basePath = isVPS ? `/var/telebot-data/bots/${botId}` : `/tmp/telebot-sandbox-${botId}`;
+    const fullOldPath = path.join(basePath, oldPath);
+    const fullNewPath = path.join(basePath, newPath);
+    if (!fullOldPath.startsWith(basePath) || !fullNewPath.startsWith(basePath)) return false;
+    if (!fs.existsSync(fullOldPath)) return false;
+    
+    try {
+      fs.renameSync(fullOldPath, fullNewPath);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   /**
    * Start bot container in an active slot
    */

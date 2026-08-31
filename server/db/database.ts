@@ -1503,6 +1503,18 @@ class RelationalDatabase {
     return this.data.files.filter((f) => f.bot_id === botId && f.user_id === userId);
   }
 
+  updateBotFile(fileId: string, userId: string, updates: Partial<DBBotFile>): DBBotFile | null {
+    const fileIndex = this.data.files.findIndex((f) => f.id === fileId && f.user_id === userId);
+    if (fileIndex === -1) return null;
+    
+    const file = this.data.files[fileIndex];
+    Object.assign(file, updates);
+    file.updated_at = new Date().toISOString();
+    
+    this.save();
+    return file;
+  }
+
   saveBotFile(
     botId: string,
     userId: string,
