@@ -50,6 +50,8 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
 
   // Upgrade state
   const [selectedUpgradeStorage, setSelectedUpgradeStorage] = useState<string>('1GB');
+  const [processingAddon, setProcessingAddon] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<BotFileItem | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -212,13 +214,14 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   };
 
   const handleDeleteFile = async (file: BotFileItem) => {
-    if (!confirm(`Delete "${file.fileName}"?`)) return;
     try {
       await api.deleteBotFile(bot.id, file.filePath);
       addToast('info', `Deleted "${file.fileName}"`);
       fetchBotFilesAndStorage();
     } catch (e: any) {
       addToast('error', e.message || 'Failed to delete file');
+    } finally {
+      setFileToDelete(null);
     }
   };
 
@@ -239,14 +242,19 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
         <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           <div className="flex items-center gap-2 sm:gap-3">
             <span className="text-xs font-bold text-slate-600">Status:</span>
-            <span className={`text-xs px-3 py-1 rounded-full font-bold border ${
+            <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border ${
               bot.status === 'running'
                 ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 : bot.status === 'stopped'
-                ? 'bg-slate-100 text-slate-600 border-slate-200'
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
                 : 'bg-rose-50 text-rose-700 border-rose-200'
             }`}>
-              {bot.status === 'running' ? '● Running' : bot.status === 'stopped' ? '○ Stopped' : '⚠ Error'}
+              <span className={`w-2 h-2 rounded-full ${
+                bot.status === 'running' ? 'bg-emerald-500 animate-pulse' :
+                bot.status === 'stopped' ? 'bg-amber-500' :
+                'bg-rose-500'
+              }`} />
+              <span>{bot.status === 'running' ? 'Running' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
             </span>
           </div>
           
@@ -378,16 +386,35 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                     </div>
                     <div>
                       <div className="font-bold text-slate-800 text-sm">{file.fileName}</div>
-                      <div className="text-xs text-slate-400">{formatSize(file.size)}</div>
+                      <div className="text-xs text-slate-400">{formatSize(file.fileSizeBytes)}</div>
                     </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteFile(file)}
-                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                    title="Delete file"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {fileToDelete?.id === file.id ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setFileToDelete(null)}
+                          className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => handleDeleteFile(file)}
+                          className="px-3 py-1.5 text-xs font-medium text-white bg-rose-500 hover:bg-rose-600 rounded-lg transition-colors cursor-pointer shadow-xs shadow-rose-200"
+                        >
+                          Confirm
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setFileToDelete(file)}
+                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                        title="Delete file"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -463,6 +490,53 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     </div>
   );
 
+  const handlePurchaseAddon = async () => {
+    setProcessingAddon(true);
+    try {
+      const mbMap: Record<string, number> = {
+        '500MB': 500,
+        '1GB': 1024,
+        '2GB': 2048,
+        '5GB': 5120,
+      };
+      const mb = mbMap[selectedUpgradeStorage] || 500;
+      
+      const response = await api.createAddonOrder(mb, bot?.project_id);
+      const { order, cashfreePayload } = response;
+
+      if (cashfreePayload && cashfreePayload.paymentSessionId) {
+        if (!(window as any).Cashfree) {
+          const script = document.createElement('script');
+          script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+          document.body.appendChild(script);
+          await new Promise((resolve) => { script.onload = resolve; });
+        }
+        
+        const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('dev');
+        const cashfree = (window as any).Cashfree({ mode: isProd ? 'production' : 'sandbox' });
+        
+        cashfree.checkout({
+          paymentSessionId: cashfreePayload.paymentSessionId,
+          redirectTarget: '_self'
+        });
+        return;
+      }
+
+      // Mock fallback
+      const actualOrderId = order.orderId || (order as any).order_id || cashfreePayload?.orderId;
+      if (!actualOrderId) {
+        throw new Error('Order ID is missing from response');
+      }
+      await api.verifyPayment(actualOrderId, 'cashfree_upi');
+      addToast('success', 'Storage added successfully! Your next renewal bill will be updated.');
+      fetchBotFilesAndStorage();
+    } catch (e: any) {
+      addToast('error', `Failed to purchase add-on: ${e.message}`);
+    } finally {
+      setProcessingAddon(false);
+    }
+  };
+
   const renderStorageView = () => (
     <div className="space-y-6 animate-in fade-in">
       <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-2xs max-w-3xl">
@@ -525,11 +599,12 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
           ))}
         </div>
         <button
-          onClick={() => addToast('success', 'Storage added successfully! Your next renewal bill will be updated.')}
-          className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+          onClick={handlePurchaseAddon}
+          disabled={processingAddon}
+          className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
         >
           <Sliders className="w-4 h-4" />
-          <span>Purchase {selectedUpgradeStorage} Add-on</span>
+          <span>{processingAddon ? 'Processing...' : `Purchase ${selectedUpgradeStorage} Add-on`}</span>
         </button>
       </div>
     </div>

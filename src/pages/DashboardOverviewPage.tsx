@@ -561,7 +561,7 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
                       bot.status === 'running'
                         ? 'bg-emerald-500 animate-pulse'
                         : bot.status === 'stopped'
-                        ? 'bg-slate-400'
+                        ? 'bg-amber-500'
                         : 'bg-rose-500'
                     }`} />
                   </div>

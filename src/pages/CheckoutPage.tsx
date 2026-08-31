@@ -172,7 +172,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate, searchPara
 
     setProcessing(true);
     try {
-      const order = await api.createCheckoutOrder({
+      const response = await api.createCheckoutOrder({
         planId: isDynamic ? 'dynamic_custom' : planIdParam,
         planName,
         billingInterval,
@@ -185,6 +185,32 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate, searchPara
         isUpgrade,
       });
 
+      const { order, cashfreePayload } = response;
+
+      if (cashfreePayload && cashfreePayload.paymentSessionId) {
+        // We have a real payment session from Cashfree API
+        if (!(window as any).Cashfree) {
+          const script = document.createElement('script');
+          script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
+          document.body.appendChild(script);
+          
+          await new Promise((resolve) => {
+            script.onload = resolve;
+          });
+        }
+        
+        const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('dev');
+        const cashfree = (window as any).Cashfree({ mode: isProd ? 'production' : 'sandbox' });
+        
+        const checkoutOptions = {
+          paymentSessionId: cashfreePayload.paymentSessionId,
+          redirectTarget: '_self' // redirects to return_url configured in backend
+        };
+        cashfree.checkout(checkoutOptions);
+        return; // Don't redirect manually here, Cashfree will redirect
+      }
+
+      // Fallback for mock/simulation without Cashfree keys
       await api.verifyPayment(order.orderId, selectedMethod);
 
       navigate(
@@ -194,7 +220,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate, searchPara
       );
     } catch (err: any) {
       alert(`Payment error: ${err.message || 'Unknown error'}`);
-    } finally {
       setProcessing(false);
     }
   };

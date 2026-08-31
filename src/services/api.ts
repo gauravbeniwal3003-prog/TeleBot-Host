@@ -515,6 +515,14 @@ class ApiService {
   }
 
   // ===================== CASHFREE CHECKOUT & ORDERS =====================
+  async createAddonOrder(storageMB: number, projectId?: string): Promise<{ order: OrderDetails; cashfreePayload: any }> {
+    const res = await this.request<{ order: OrderDetails; cashfreePayload: any }>('/api/orders/create-addon', {
+      method: 'POST',
+      body: JSON.stringify({ storageMB, projectId }),
+    });
+    return res;
+  }
+
   async createCheckoutOrder(data: {
     planId: string;
     planName: string;
@@ -527,12 +535,12 @@ class ApiService {
     couponCode?: string;
     dynamicConfig?: DynamicPlanConfig;
     isUpgrade?: boolean;
-  }): Promise<OrderDetails> {
-    const res = await this.request<{ order: OrderDetails }>('/api/orders/create', {
+  }): Promise<{ order: OrderDetails; cashfreePayload: any }> {
+    const res = await this.request<{ order: OrderDetails; cashfreePayload: any }>('/api/orders/create', {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    return res.order;
+    return res;
   }
 
   async verifyPayment(orderId: string, paymentMethod?: string, paymentId?: string): Promise<OrderDetails> {

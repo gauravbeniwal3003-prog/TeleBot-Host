@@ -375,17 +375,6 @@ filesRouter.delete('/:botId/files', (req: Request, res: Response): void => {
     const cleanPath = StorageManager.sanitizeFilePath(filePath);
     const bot = db.getBotById(botId, userId);
     
-    // Safety warning if deleting entry point
-    if (bot && (cleanPath === bot.entry_point || path.basename(cleanPath) === bot.entry_point)) {
-      const userFiles = db.getBotFiles(botId, userId);
-      if (userFiles.length <= 1) {
-        res.status(400).json({
-          error: `Cannot delete primary entry point "${cleanPath}" when it is the only source file in the bot sandbox. Replace it or add another file first.`,
-        });
-        return;
-      }
-    }
-
     db.deleteBotFile(botId, userId, cleanPath);
     const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
 

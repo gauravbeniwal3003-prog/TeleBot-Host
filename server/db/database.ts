@@ -959,22 +959,22 @@ class RelationalDatabase {
       username: data.username.startsWith('@') ? data.username : `@${data.username}`,
       framework: data.framework,
       version: `${data.framework} v24.2 (cgroups v2)`,
-      status: canAutoRun ? 'running' : 'stopped',
-      is_active_slot: canAutoRun,
+      status: 'stopped',
+      is_active_slot: false,
       entry_point: data.entryPoint || (data.framework.startsWith('python') || data.framework === 'aiogram' || data.framework === 'telethon' || data.framework === 'pyrogram' ? 'main.py' : 'index.js'),
       git_repo_url: data.gitRepoUrl,
       has_database: data.hasDatabase ?? false,
       db_type: data.dbType,
       webhook_enabled: data.webhookEnabled ?? false,
       webhook_url: data.webhookEnabled ? `https://wh.telegrambots.io/hook/${botId}` : undefined,
-      cpu_usage: canAutoRun ? Math.round((Math.random() * 2 + 1) * 10) / 10 : 0,
-      memory_usage_mb: canAutoRun ? Math.round(Math.random() * 60 + 80) : 0,
+      cpu_usage: 0,
+      memory_usage_mb: 0,
       memory_limit_mb: sub?.ram_limit_mb ? Math.floor(sub.ram_limit_mb / Math.max(1, maxActiveRunning)) : 512,
-      storage_usage_mb: 25.0,
-      uptime_seconds: canAutoRun ? 15 : 0,
+      storage_usage_mb: 0,
+      uptime_seconds: 0,
       restart_count: 0,
       last_deployed_at: now,
-      last_started_at: canAutoRun ? now : undefined,
+      last_started_at: undefined,
       created_at: now,
       updated_at: now,
     };
@@ -1005,29 +1005,8 @@ class RelationalDatabase {
       },
     ];
 
-    // Seed default project files for the newly created bot
-    const sampleMain = data.framework === 'telegraf' || data.framework === 'grammy'
-      ? `// Telegram Bot (${data.framework})\nconst { Telegraf } = require('telegraf');\nconst bot = new Telegraf(process.env.BOT_TOKEN);\n\nbot.start((ctx) => ctx.reply('Welcome! Online 24/7 on TeleBot Host.'));\nbot.launch();\nconsole.log('Bot started...');\n`
-      : `import asyncio\nimport logging\nfrom aiogram import Bot, Dispatcher, types\nfrom aiogram.filters import CommandStart\n\nbot = Bot(token="YOUR_TOKEN")\ndp = Dispatcher()\n\n@dp.message(CommandStart())\nasync def start_cmd(message: types.Message):\n    await message.answer("Hello! Your bot is live on TeleBot Host 24/7 in an isolated Linux container.")\n\nasync def main():\n    await dp.start_polling(bot)\n\nif __name__ == "__main__":\n    asyncio.run(main())\n`;
-
-    const sampleFile: DBBotFile = {
-      id: `file_${Date.now()}_1`,
-      bot_id: botId,
-      project_id: projId,
-      user_id: userId,
-      file_path: bot.entry_point,
-      file_name: bot.entry_point,
-      file_size_bytes: sampleMain.length,
-      mime_type: 'text/plain',
-      is_directory: false,
-      content: sampleMain,
-      created_at: now,
-      updated_at: now,
-    };
-
     this.data.bots.unshift(bot);
     this.data.env_vars.push(...envVars);
-    this.data.files.push(sampleFile);
 
     // Provision isolated container sandbox via Worker Client
     vpsWorkerClient.provisionSandbox({

@@ -33,7 +33,8 @@
       "role": "user",
       "is_verified": true,
       "created_at": "2026-08-30T09:08:48.822Z",
-      "updated_at": "2026-08-30T09:08:48.822Z"
+      "updated_at": "2026-08-30T09:08:48.822Z",
+      "status": "active"
     }
   ],
   "projects": [
@@ -83,10 +84,10 @@
       "plan_id": "starter",
       "plan_name": "Starter Bot Plan (Free Trial)",
       "status": "trial",
-      "trial_started": false,
-      "trial_started_at": null,
-      "start_date": "",
-      "expiry_date": "",
+      "trial_started": true,
+      "trial_started_at": "2026-08-31T01:47:52.533Z",
+      "start_date": "2026-08-31T01:47:52.533Z",
+      "expiry_date": "2026-09-01T01:47:52.533Z",
       "auto_renew": false,
       "total_bot_slots": 1,
       "ram_limit_mb": 512,
@@ -94,7 +95,7 @@
       "db_storage_mb": 50,
       "max_file_size_mb": 5,
       "created_at": "2026-08-30T08:42:49.830Z",
-      "updated_at": "2026-08-30T08:42:49.830Z"
+      "updated_at": "2026-08-31T01:47:52.533Z"
     },
     {
       "id": "sub_107579",
@@ -117,11 +118,473 @@
       "updated_at": "2026-08-30T09:08:48.822Z"
     }
   ],
-  "bots": [],
-  "env_vars": [],
+  "bots": [
+    {
+      "id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "name": "TracexFreee",
+      "username": "@tracexfreee_bot",
+      "framework": "telebot",
+      "version": "telebot v24.2 (cgroups v2)",
+      "status": "stopped",
+      "is_active_slot": false,
+      "entry_point": "main.py",
+      "has_database": false,
+      "webhook_enabled": false,
+      "cpu_usage": 0,
+      "memory_usage_mb": 0,
+      "memory_limit_mb": 512,
+      "storage_usage_mb": 15.6,
+      "uptime_seconds": 0,
+      "restart_count": 0,
+      "last_deployed_at": "2026-08-31T01:41:41.270Z",
+      "last_started_at": "2026-08-31T01:47:52.533Z",
+      "created_at": "2026-08-31T01:41:41.270Z",
+      "updated_at": "2026-08-31T01:49:18.564Z",
+      "last_stopped_at": "2026-08-31T01:49:18.564Z"
+    }
+  ],
+  "env_vars": [
+    {
+      "id": "env_1788140501270_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "key": "BOT_TOKEN",
+      "value": "YOUR_BOT_TOKEN",
+      "is_secret": true,
+      "created_at": "2026-08-31T01:41:41.270Z",
+      "updated_at": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "env_1788140501270_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "key": "ENVIRONMENT",
+      "value": "production",
+      "is_secret": false,
+      "created_at": "2026-08-31T01:41:41.270Z",
+      "updated_at": "2026-08-31T01:41:41.270Z"
+    }
+  ],
   "files": [],
-  "logs": [],
+  "logs": [
+    {
+      "id": "log_1788140501270_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Initializing isolated Linux container sandbox for bot \"TracexFreee\" (cgroups v2, memory limit: 512MB, read-only rootfs).",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Parsing entry point script \"main.py\" (Framework: telebot)...",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_3",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Static security inspection: 0 vulnerabilities found, AST verification PASSED.",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_4",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Environment variables loaded (BOT_TOKEN, ENVIRONMENT=production).",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_5",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY SUCCESS] Bot container created & deployed successfully. Ready for execution.",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_6",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Launching container process: python3 main.py (PID: 41995)...",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_7",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT STDOUT] [TeleBot Host Engine] Bot process online. Connected to Telegram Gateway.",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140501270_8",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT STDOUT] [INFO] TracexFreee is listening for incoming updates 24/7.",
+      "timestamp": "2026-08-31T01:41:41.270Z"
+    },
+    {
+      "id": "log_1788140599617_stop_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] STOP command received from user dashboard at 1:43:19 AM UTC.",
+      "timestamp": "2026-08-31T01:43:19.617Z"
+    },
+    {
+      "id": "log_1788140599637_stop_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT PROCESS] Sending SIGTERM signal to process (PID: 57457)...",
+      "timestamp": "2026-08-31T01:43:19.617Z"
+    },
+    {
+      "id": "log_1788140599637_stop_3",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT STDOUT] [INFO] Bot process graceful shutdown initiated.",
+      "timestamp": "2026-08-31T01:43:19.617Z"
+    },
+    {
+      "id": "log_1788140599637_stop_4",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT PROCESS] Process exited cleanly with code 0.",
+      "timestamp": "2026-08-31T01:43:19.617Z"
+    },
+    {
+      "id": "log_1788140599637_stop_5",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Container stopped at 1:43:19 AM UTC. CPU/RAM allocations freed. Status: STOPPED.",
+      "timestamp": "2026-08-31T01:43:19.617Z"
+    },
+    {
+      "id": "log_1788140654354_file_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Source file 'freebot.py' updated (8034 bytes).",
+      "timestamp": "2026-08-31T01:44:14.350Z"
+    },
+    {
+      "id": "log_1788140654354_file_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Static security inspection for 'freebot.py': 0 errors.",
+      "timestamp": "2026-08-31T01:44:14.350Z"
+    },
+    {
+      "id": "log_1788140654354_file_3",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Virtual sandbox file 'freebot.py' reloaded at 1:44:14 AM UTC.",
+      "timestamp": "2026-08-31T01:44:14.350Z"
+    },
+    {
+      "id": "log_1788140708696_file_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Source file 'image-1788095934251.jpg' updated (623286 bytes).",
+      "timestamp": "2026-08-31T01:45:08.694Z"
+    },
+    {
+      "id": "log_1788140708696_file_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[DEPLOY] Static security inspection for 'image-1788095934251.jpg': 0 errors.",
+      "timestamp": "2026-08-31T01:45:08.694Z"
+    },
+    {
+      "id": "log_1788140708696_file_3",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Virtual sandbox file 'image-1788095934251.jpg' reloaded at 1:45:08 AM UTC.",
+      "timestamp": "2026-08-31T01:45:08.694Z"
+    },
+    {
+      "id": "log_1788140872557_start_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] START command received from user dashboard at 1:47:52 AM UTC.",
+      "timestamp": "2026-08-31T01:47:52.533Z"
+    },
+    {
+      "id": "log_1788140872557_start_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Allocating container sandbox resources (CPU quota: 50%, RAM limit: 512MB).",
+      "timestamp": "2026-08-31T01:47:52.533Z"
+    },
+    {
+      "id": "log_1788140872557_start_3",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT PROCESS] Spawning python process: python3 main.py (PID: 59213)",
+      "timestamp": "2026-08-31T01:47:52.533Z"
+    },
+    {
+      "id": "log_1788140872557_start_4",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT STDOUT] [TeleBot Host Engine] TracexFreee started successfully. Connected to Telegram Gateway.",
+      "timestamp": "2026-08-31T01:47:52.533Z"
+    },
+    {
+      "id": "log_1788140872557_start_5",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT STDOUT] [INFO] Listening for incoming updates (Long Polling & Webhook router active).",
+      "timestamp": "2026-08-31T01:47:52.533Z"
+    },
+    {
+      "id": "log_1788140958564_stop_1",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] STOP command received from user dashboard at 1:49:18 AM UTC.",
+      "timestamp": "2026-08-31T01:49:18.564Z"
+    },
+    {
+      "id": "log_1788140958564_stop_2",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT PROCESS] Sending SIGTERM signal to process (PID: 50824)...",
+      "timestamp": "2026-08-31T01:49:18.564Z"
+    },
+    {
+      "id": "log_1788140958564_stop_3",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT STDOUT] [INFO] Bot process graceful shutdown initiated.",
+      "timestamp": "2026-08-31T01:49:18.564Z"
+    },
+    {
+      "id": "log_1788140958564_stop_4",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[BOT PROCESS] Process exited cleanly with code 0.",
+      "timestamp": "2026-08-31T01:49:18.564Z"
+    },
+    {
+      "id": "log_1788140958564_stop_5",
+      "bot_id": "bot_11193",
+      "project_id": "proj_73651666",
+      "user_id": "usr_73237977",
+      "level": "info",
+      "message": "[VPS SYSTEM] Container stopped at 1:49:18 AM UTC. CPU/RAM allocations freed. Status: STOPPED.",
+      "timestamp": "2026-08-31T01:49:18.564Z"
+    }
+  ],
   "activity_logs": [
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.file_delete",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "filePath": "image-1788095934251.jpg"
+      },
+      "id": "act_1788141661040_794",
+      "created_at": "2026-08-31T02:01:01.040Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.file_delete",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "filePath": "freebot.py"
+      },
+      "id": "act_1788141653043_16",
+      "created_at": "2026-08-31T02:00:53.043Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.file_delete",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "filePath": "main.py"
+      },
+      "id": "act_1788141624554_901",
+      "created_at": "2026-08-31T02:00:24.554Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "order.create",
+      "target_type": "order",
+      "target_id": "TH_ORD_841931",
+      "details": {
+        "amount": 72.65,
+        "plan": "storage_addon"
+      },
+      "id": "act_1788141272475_135",
+      "created_at": "2026-08-31T01:54:32.475Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.stop",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "bot_name": "TracexFreee"
+      },
+      "id": "act_1788140958575_927",
+      "created_at": "2026-08-31T01:49:18.575Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.start",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "bot_name": "TracexFreee"
+      },
+      "id": "act_1788140872567_131",
+      "created_at": "2026-08-31T01:47:52.567Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "trial.activated",
+      "target_type": "subscription",
+      "target_id": "sub_843937",
+      "details": {
+        "bot_id": "bot_11193",
+        "activated_at": "2026-08-31T01:47:52.533Z",
+        "expires_at": "2026-09-01T01:47:52.533Z"
+      },
+      "id": "act_1788140872547_802",
+      "created_at": "2026-08-31T01:47:52.547Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "order.create",
+      "target_type": "order",
+      "target_id": "TH_ORD_305048",
+      "details": {
+        "amount": null,
+        "plan": "storage_addon"
+      },
+      "id": "act_1788140741094_670",
+      "created_at": "2026-08-31T01:45:41.094Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.file_upload",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "fileName": "image-1788095934251.jpg",
+        "sizeBytes": 623286,
+        "replaced": false
+      },
+      "id": "act_1788140708708_688",
+      "created_at": "2026-08-31T01:45:08.708Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.file_upload",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "fileName": "freebot.py",
+        "sizeBytes": 8034,
+        "replaced": false
+      },
+      "id": "act_1788140654357_392",
+      "created_at": "2026-08-31T01:44:14.357Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.stop",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "bot_name": "TracexFreee"
+      },
+      "id": "act_1788140599639_290",
+      "created_at": "2026-08-31T01:43:19.639Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.create",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "name": "TracexFreee",
+        "framework": "telebot",
+        "project_id": "proj_73651666"
+      },
+      "id": "act_1788140501273_632",
+      "created_at": "2026-08-31T01:41:41.273Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "user.login",
+      "target_type": "auth",
+      "ip_address": "169.254.169.126",
+      "user_agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36",
+      "id": "act_1788139287532_957",
+      "created_at": "2026-08-31T01:21:27.532Z"
+    },
     {
       "user_id": "usr_76601267",
       "action": "user.register",
@@ -155,7 +618,64 @@
       "created_at": "2026-08-30T08:40:53.236Z"
     }
   ],
-  "orders": [],
+  "orders": [
+    {
+      "order_id": "TH_ORD_841931",
+      "user_id": "usr_73237977",
+      "project_id": "proj_73651666",
+      "plan_id": "storage_addon",
+      "plan_name": "Storage Add-on (+500MB)",
+      "billing_interval": "monthly",
+      "currency": "INR",
+      "amount": 73,
+      "discount": 11.43,
+      "tax": 11.08,
+      "total_amount": 72.65,
+      "plan_config": {
+        "activeBotCount": 1,
+        "totalBotSlots": 1,
+        "maxPythonFileSizeMB": 5,
+        "dbStorageMB": 551.2,
+        "durationDays": 30
+      },
+      "upgrade_from_sub_id": "sub_843937",
+      "unused_credit": 11.43,
+      "customer_name": "Gaurav beniwal",
+      "customer_email": "gauravbeniwal30003@gmail.com",
+      "customer_phone": "9999999999",
+      "status": "pending",
+      "created_at": "2026-08-31T01:54:32.463Z",
+      "updated_at": "2026-08-31T01:54:32.463Z"
+    },
+    {
+      "order_id": "TH_ORD_305048",
+      "user_id": "usr_73237977",
+      "project_id": "proj_73651666",
+      "plan_id": "storage_addon",
+      "plan_name": "Storage Add-on (+500MB)",
+      "billing_interval": "monthly",
+      "currency": "INR",
+      "amount": 73,
+      "discount": null,
+      "tax": null,
+      "total_amount": null,
+      "plan_config": {
+        "activeBotCount": 1,
+        "totalBotSlots": 1,
+        "maxPythonFileSizeMB": 5,
+        "dbStorageMB": 551.2,
+        "durationDays": 30
+      },
+      "upgrade_from_sub_id": "sub_843937",
+      "unused_credit": null,
+      "customer_name": "Gaurav beniwal",
+      "customer_email": "gauravbeniwal30003@gmail.com",
+      "customer_phone": "9999999999",
+      "status": "pending",
+      "created_at": "2026-08-31T01:45:41.084Z",
+      "updated_at": "2026-08-31T01:45:41.084Z"
+    }
+  ],
   "tickets": [],
   "pricing_config": {
     "basePricePerBotMonthlyINR": 49,

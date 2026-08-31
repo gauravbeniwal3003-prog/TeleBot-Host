@@ -223,7 +223,7 @@ subscriptionsRouter.post('/subscriptions/upgrade-quote', requireAuth, (req: Requ
 });
 
 // 6. CREATE CHECKOUT ORDER (Protected - Server-Authoritative)
-subscriptionsRouter.post('/orders/create', requireAuth, (req: Request, res: Response): void => {
+subscriptionsRouter.post('/orders/create', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       planId,
@@ -353,12 +353,63 @@ subscriptionsRouter.post('/orders/create', requireAuth, (req: Request, res: Resp
       status: 'pending',
     });
 
+    let paymentSessionId = '';
+
+    const cfClientId = process.env.CASHFREE_APP_ID || process.env.CASHFREE_CLIENT_ID;
+    const cfClientSecret = process.env.CASHFREE_SECRET_KEY || process.env.CASHFREE_CLIENT_SECRET;
+    const isProd = process.env.NODE_ENV === 'production' || process.env.CASHFREE_ENV === 'PRODUCTION';
+
+    if (cfClientId && cfClientSecret) {
+      try {
+        const url = isProd
+          ? `https://api.cashfree.com/pg/orders`
+          : `https://sandbox.cashfree.com/pg/orders`;
+        
+        const cfResponse = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'x-client-id': cfClientId,
+            'x-client-secret': cfClientSecret,
+            'x-api-version': '2023-08-01',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            order_amount: order.total_amount,
+            order_currency: order.currency,
+            order_id: order.order_id,
+            customer_details: {
+              customer_id: req.user!.id.substring(0, 50),
+              customer_name: order.customer_name,
+              customer_email: order.customer_email,
+              customer_phone: order.customer_phone || '9999999999'
+            },
+            order_meta: {
+              return_url: `${process.env.APP_URL || 'http://localhost:3000'}/payment-success?order_id=${order.order_id}`,
+              notify_url: `${process.env.APP_URL || 'http://localhost:3000'}/api/orders/cashfree-webhook`
+            }
+          })
+        });
+
+        if (!cfResponse.ok) {
+          const errData = await cfResponse.text();
+          console.error('[Cashfree] Order creation failed:', errData);
+        } else {
+          const cfData = await cfResponse.json();
+          paymentSessionId = cfData.payment_session_id;
+        }
+      } catch (err) {
+        console.error('[Cashfree] Error calling Cashfree:', err);
+      }
+    }
+
     res.status(201).json({
       order,
       cashfreePayload: {
         orderId: order.order_id,
         orderAmount: order.total_amount,
         orderCurrency: order.currency,
+        paymentSessionId: paymentSessionId,
         customerDetails: {
           customerId: req.user!.id,
           customerName: order.customer_name,
@@ -366,8 +417,8 @@ subscriptionsRouter.post('/orders/create', requireAuth, (req: Request, res: Resp
           customerPhone: order.customer_phone || '9999999999',
         },
         orderMeta: {
-          returnUrl: `${process.env.APP_URL || ''}/payment-success?order_id=${order.order_id}`,
-          notifyUrl: `${process.env.APP_URL || ''}/api/orders/cashfree-webhook`,
+          returnUrl: `${process.env.APP_URL || 'http://localhost:3000'}/payment-success?order_id=${order.order_id}`,
+          notifyUrl: `${process.env.APP_URL || 'http://localhost:3000'}/api/orders/cashfree-webhook`,
         },
       },
     });
@@ -546,5 +597,112 @@ subscriptionsRouter.put('/admin/pricing/config', requireAdmin, (req: Request, re
     res.json({ success: true, config: updated, message: 'Pricing configuration updated successfully' });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to update pricing config' });
+  }
+});
+
+subscriptionsRouter.post('/orders/create-addon', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { storageMB, projectId } = req.body;
+    let projId = projectId;
+    if (!projId) {
+      const userProjs = db.getUserProjects(req.user!.id);
+      if (userProjs.length > 0) projId = userProjs[0].id;
+    }
+    
+    const currentSub = projId ? db.getProjectSubscription(projId) : db.getUserSubscription(req.user!.id);
+    if (!currentSub) {
+      res.status(400).json({ error: 'No active subscription found to upgrade.' });
+      return;
+    }
+
+    const currentConfig: any = {
+      activeBotCount: currentSub.active_bot_count || 1,
+      totalBotSlots: currentSub.total_bot_slots || 3,
+      maxPythonFileSizeMB: currentSub.max_file_size_mb || 5,
+      dbStorageMB: currentSub.storage_limit_gb * 1024,
+      durationDays: 30, // Default for calculation
+    };
+
+    const newConfig = {
+      ...currentConfig,
+      dbStorageMB: currentConfig.dbStorageMB + parseInt(storageMB),
+    };
+
+    const quote = db.calculateUpgradeQuote(req.user!.id, newConfig, projId);
+    
+    const orderId = `TH_ORD_${Math.floor(100000 + Math.random() * 900000)}`;
+    const order = db.createOrder({
+      order_id: orderId,
+      user_id: req.user!.id,
+      project_id: projId,
+      plan_id: 'storage_addon',
+      plan_name: `Storage Add-on (+${storageMB}MB)`,
+      billing_interval: 'monthly',
+      currency: 'INR',
+      amount: quote.newPlanCalculation.subtotalINR,
+      discount: quote.creditAppliedINR,
+      tax: quote.taxINR,
+      total_amount: quote.totalPayableINR,
+      plan_config: newConfig,
+      upgrade_from_sub_id: currentSub.id,
+      unused_credit: quote.creditAppliedINR,
+      customer_name: req.user!.name,
+      customer_email: req.user!.email,
+      customer_phone: '9999999999',
+      status: 'pending',
+    });
+
+    let paymentSessionId = '';
+    const cfClientId = process.env.CASHFREE_APP_ID || process.env.CASHFREE_CLIENT_ID;
+    const cfClientSecret = process.env.CASHFREE_SECRET_KEY || process.env.CASHFREE_CLIENT_SECRET;
+    const isProd = process.env.NODE_ENV === 'production' || process.env.CASHFREE_ENV === 'PRODUCTION';
+
+    if (cfClientId && cfClientSecret) {
+      try {
+        const url = isProd ? `https://api.cashfree.com/pg/orders` : `https://sandbox.cashfree.com/pg/orders`;
+        const cfResponse = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'x-client-id': cfClientId,
+            'x-client-secret': cfClientSecret,
+            'x-api-version': '2023-08-01',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            order_amount: order.total_amount,
+            order_currency: order.currency,
+            order_id: order.order_id,
+            customer_details: {
+              customer_id: req.user!.id.substring(0, 50),
+              customer_name: order.customer_name,
+              customer_email: order.customer_email,
+              customer_phone: order.customer_phone || '9999999999'
+            },
+            order_meta: {
+              return_url: `${process.env.APP_URL || 'http://localhost:3000'}/payment-success?order_id=${order.order_id}`,
+              notify_url: `${process.env.APP_URL || 'http://localhost:3000'}/api/orders/cashfree-webhook`
+            }
+          })
+        });
+
+        if (cfResponse.ok) {
+          const cfData = await cfResponse.json();
+          paymentSessionId = cfData.payment_session_id;
+        }
+      } catch (err) {}
+    }
+
+    res.status(201).json({
+      order,
+      cashfreePayload: {
+        orderId: order.order_id,
+        orderAmount: order.total_amount,
+        orderCurrency: order.currency,
+        paymentSessionId: paymentSessionId,
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Failed to create add-on order' });
   }
 });
