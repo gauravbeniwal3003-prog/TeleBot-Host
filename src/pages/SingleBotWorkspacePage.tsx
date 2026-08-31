@@ -195,16 +195,15 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       await new Promise(r => setTimeout(r, 800));
       setStartStep(3);
       
-      // Step 3: Sandbox Environment & Credentials Check
+      // Step 3: Sandbox Environment & Credentials Check (Optional)
       const tokenVar = envVars.find(ev => ev.key === 'TELEGRAM_TOKEN');
       if (!tokenVar || !tokenVar.value || tokenVar.value.trim() === '') {
-        throw new Error("Unconfigured Credentials: 'TELEGRAM_TOKEN' environment variable is missing or empty. Please save a valid Telegram Token from @BotFather in the panel below.");
+        // Proceed without error since the token is optional
       } else if (
         tokenVar.value.includes('YOUR_') || 
-        tokenVar.value.toLowerCase().includes('token') || 
-        tokenVar.value.length < 15
+        tokenVar.value.toLowerCase().includes('token')
       ) {
-        throw new Error("Invalid Credentials: 'TELEGRAM_TOKEN' contains a placeholder or invalid structure (must be a valid token from @BotFather, e.g. 123456789:ABC_def...)");
+        // Proceed without error
       }
       
       await new Promise(r => setTimeout(r, 800));
