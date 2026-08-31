@@ -14,6 +14,7 @@ import {
   Upload,
   Trash2,
   AlertCircle,
+  AlertTriangle,
   Sliders,
   Database,
   ArrowRight
@@ -142,9 +143,26 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     if (action === 'stop') {
       setStatusChanging(true);
       try {
-        const updated = await api.updateBotStatus(bot.id, 'stop');
-        setBot(updated);
-        addToast('success', 'Bot was successfully stopped.');
+        addToast('info', 'Stopping bot container...');
+        await api.updateBotStatus(bot.id, 'stop');
+        
+        // Wait for confirmation from VPS
+        let isConfirmed = false;
+        for (let i = 0; i < 4; i++) {
+          await new Promise(r => setTimeout(r, 600));
+          const tel = await api.getBotTelemetry(bot.id);
+          if (!tel || tel.state === 'STOPPED' || tel.state === 'ERROR' || tel.state === 'EXPIRED') {
+            isConfirmed = true;
+            break;
+          }
+        }
+        
+        if (isConfirmed) {
+          addToast('success', 'Verified: Bot was successfully stopped.');
+        } else {
+          addToast('error', 'Verification timeout: Bot may still be stopping.');
+        }
+        
         refreshBots();
       } catch (e: any) {
         addToast('error', e.message || 'Failed to stop bot');
@@ -361,6 +379,27 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
 
     return (
       <div className="space-y-6 animate-in fade-in max-w-full">
+        {bot.status === 'expired' && (
+          <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl shadow-sm space-y-3">
+            <div className="flex items-center gap-3 text-rose-700">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="font-bold text-lg">Subscription Expired</h3>
+            </div>
+            <p className="text-sm text-rose-600 font-medium">
+              Your subscription plan (including your free trial) has expired. The bot has been stopped automatically. 
+              To continue hosting your bot and retain your files, please purchase or upgrade your plan within the 24-hour grace period.
+            </p>
+            <div className="pt-2">
+              <button 
+                onClick={() => navigate('/billing')} 
+                className="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-lg text-xs font-bold transition-colors shadow-sm"
+              >
+                View Plans & Upgrade
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Bot Controls Card */}
         <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-5">
           <div>

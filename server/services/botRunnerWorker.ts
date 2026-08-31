@@ -12,14 +12,15 @@
  */
 
 import { EventEmitter } from 'events';
-import { execSync } from 'child_process';
+import { execSync, spawn, ChildProcess } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { db } from '../db/database';
 import { PythonValidator, PythonValidationResult } from './pythonValidator';
 import { LogManager } from './logManager';
 
-export type ContainerState = 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'ERROR' | 'EXPIRED';
+export type ContainerState = 'STARTING' | 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'ERROR' | 'EXPIRED';
 
 export interface ContainerSandboxConfig {
   containerId: string;
@@ -69,6 +70,7 @@ export interface SecurityTestReport {
 
 export class BotRunnerWorker extends EventEmitter {
   private sandboxes: Map<string, ContainerSandboxConfig> = new Map();
+  private activeProcesses: Map<string, ChildProcess> = new Map();
   private telemetries: Map<string, ContainerTelemetry> = new Map();
   private runnerInterval: NodeJS.Timeout | null = null;
   private readonly workerSecretToken: string;
@@ -234,16 +236,39 @@ export class BotRunnerWorker extends EventEmitter {
           execSync(`systemctl stop "telebot-bot-${botId}.service" || true`);
         } catch {}
 
-        // 5. Execute run-bot-isolated.sh via systemd-run
+        // 5. Smart Requirements setup and Execute run-bot-isolated.sh
         let entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
         if (!fs.existsSync(path.join(botDir, entryPoint))) {
           const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
           if (pyFiles.length > 0) {
             const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
             entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
+            if (bot) {
+              bot.entry_point = entryPoint;
+              db.save();
+            }
           }
         }
         
+        // Smart requirements logic
+        const reqPath = path.join(botDir, 'requirements.txt');
+        if (fs.existsSync(reqPath)) {
+          const reqContent = fs.readFileSync(reqPath, 'utf-8');
+          const hashPath = path.join(botDir, '.req_hash');
+          const currentHash = crypto.createHash('md5').update(reqContent).digest('hex');
+          if (!fs.existsSync(hashPath) || fs.readFileSync(hashPath, 'utf-8') !== currentHash) {
+            LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Found new requirements.txt on VPS. Installing dependencies...`);
+            try {
+              execSync('pip3 install -r requirements.txt', { cwd: botDir });
+              fs.writeFileSync(hashPath, currentHash, 'utf-8');
+              execSync(`chown 10001:10001 "${hashPath}"`);
+              LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Requirements installed successfully on VPS.`);
+            } catch (err: any) {
+              LogManager.appendLog(botId, userId, 'error', `[Terminal] [ERROR] Failed to install requirements on VPS: ${err.message}`);
+            }
+          }
+        }
+
         const ramLimit = bot ? bot.memory_limit_mb || 80 : 80;
         execSync(`bash /opt/telebot-host/run-bot-isolated.sh "${botId}" "${botDir}" "${entryPoint}" "${ramLimit}"`);
 
@@ -267,7 +292,7 @@ export class BotRunnerWorker extends EventEmitter {
     telemetry.lastExitCode = undefined;
     telemetry.lastErrorMessage = undefined;
 
-    const entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
+    let entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
     const envVars = db.getBotEnvVarsDirect(botId);
 
     // Append beautiful terminal startup sequence logs
@@ -278,11 +303,13 @@ export class BotRunnerWorker extends EventEmitter {
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync and setting up virtual environment...`);
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: /usr/bin/python3 -u ${entryPoint}`);
 
+      const envDict: Record<string, string> = { ...process.env };
       if (envVars && envVars.length > 0) {
         LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Loaded environment variables:`);
         for (const ev of envVars) {
           const key = ev.key;
           let val = ev.value || '';
+          envDict[key] = val;
           if (key.includes('TOKEN') || key.includes('SECRET') || key.includes('PASSWORD') || key.includes('KEY')) {
             val = val.length > 10 ? val.substring(0, 8) + '***********************' : '********';
           }
@@ -293,9 +320,91 @@ export class BotRunnerWorker extends EventEmitter {
       }
 
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Installing required dependencies from imports...`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Requirement satisfied: python-telegram-bot >= 20.0 (already installed)`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Server handshake: successfully linked socket daemon to api.telegram.org`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Telegram Bot instance started successfully and is now active.`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Setup complete. Starting execution...`);
+
+      if (!isVPS) {
+        // Run locally in sandbox
+        const sandboxDir = path.join('/tmp', `telebot-sandbox-${botId}`);
+        fs.mkdirSync(sandboxDir, { recursive: true });
+        
+        // Sync files
+        const files = db.getBotFilesDirect(botId);
+        for (const file of files) {
+          const fullPath = path.join(sandboxDir, file.file_path);
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+          fs.writeFileSync(fullPath, file.content || '', 'utf-8');
+        }
+
+        // Smart requirements logic
+        const reqPath = path.join(sandboxDir, 'requirements.txt');
+        if (fs.existsSync(reqPath)) {
+          const reqContent = fs.readFileSync(reqPath, 'utf-8');
+          const hashPath = path.join(sandboxDir, '.req_hash');
+          const currentHash = crypto.createHash('md5').update(reqContent).digest('hex');
+          if (!fs.existsSync(hashPath) || fs.readFileSync(hashPath, 'utf-8') !== currentHash) {
+            LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Found new requirements.txt. Installing dependencies via pip...`);
+            try {
+              execSync('pip3 install --break-system-packages -r requirements.txt', { cwd: sandboxDir });
+              fs.writeFileSync(hashPath, currentHash, 'utf-8');
+              LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Requirements installed successfully.`);
+            } catch (err: any) {
+              LogManager.appendLog(botId, userId, 'error', `[Terminal] [ERROR] Failed to install requirements: ${err.message}`);
+            }
+          }
+        }
+        
+        if (!fs.existsSync(path.join(sandboxDir, entryPoint))) {
+          const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
+          if (pyFiles.length > 0) {
+            const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
+            entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
+            if (bot) {
+              bot.entry_point = entryPoint;
+              db.save();
+            }
+          }
+        }
+
+        const childEnv = { ...process.env, ...envDict, PYTHONUNBUFFERED: '1' };
+        
+        const child = spawn('/usr/bin/python3', ['-u', entryPoint], {
+          cwd: sandboxDir,
+          env: childEnv,
+        });
+
+        this.activeProcesses.set(botId, child);
+
+        child.stdout.on('data', (data) => {
+          const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
+          lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'info', line));
+        });
+
+        child.stderr.on('data', (data) => {
+          const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
+          lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'error', line));
+        });
+
+        child.on('close', (code) => {
+          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Process exited with code ${code}`);
+          const tel = this.telemetries.get(botId);
+          if (tel && tel.state === 'ACTIVE') {
+             tel.state = code === 0 ? 'STOPPED' : 'ERROR';
+             tel.lastExitCode = code || undefined;
+             this.emit('bot_event', {
+                type: 'STOP',
+                botId,
+                timestamp: new Date().toISOString(),
+                message: `Container exited automatically with code ${code}`,
+             });
+             const botObj = db.getBotDirect(botId);
+             if (botObj) {
+                botObj.status = tel.state === 'ERROR' ? 'error' : 'stopped';
+                db.save();
+             }
+          }
+          this.activeProcesses.delete(botId);
+        });
+      }
     } catch (e) {
       console.error('[Bot runner] Failed to append startup sequence logs:', e);
     }
@@ -331,6 +440,12 @@ export class BotRunnerWorker extends EventEmitter {
         execSync(`systemctl stop "telebot-bot-${botId}.service" || true`);
       } catch (err) {
         console.warn(`[Bot runner] Failed to cleanly stop systemd service:`, err);
+      }
+    } else {
+      const child = this.activeProcesses.get(botId);
+      if (child) {
+        child.kill('SIGTERM');
+        this.activeProcesses.delete(botId);
       }
     }
 
@@ -596,53 +711,53 @@ export class BotRunnerWorker extends EventEmitter {
           }
         }
 
-        // Simulate interactive request hits if the bot is actively running
-        if (telemetry.state === 'ACTIVE') {
-          // 40% chance every 5 seconds to simulate an incoming message update hit
-          if (Math.random() < 0.4) {
-            const sampleUsers = [
-              { username: 'gaurav_b', id: 83948123 },
-              { username: 'alicia_k', id: 72839122 },
-              { username: 'john_doe', id: 48192312 },
-              { username: 'telegram_tester', id: 93848123 }
-            ];
-            const sampleUser = sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
-            const sampleCommands = ['/start', '/help', '/status', 'Hello bot!', 'Are you online?', '/info', 'ping'];
-            const cmd = sampleCommands[Math.floor(Math.random() * sampleCommands.length)];
-            const updateId = Math.floor(100000000 + Math.random() * 900000000);
-
-            const botObj = db.getBotDirect(botId);
-            const bUserId = botObj ? botObj.user_id : 'system';
-
-            try {
-              LogManager.appendLog(
-                botId,
-                bUserId,
-                'info',
-                `[Terminal] [INFO] Incoming Update (ID: ${updateId}) | User: @${sampleUser.username} (${sampleUser.id}) | Message: "${cmd}"`
-              );
-
-              setTimeout(() => {
-                let response = `Processed message "${cmd}" successfully.`;
-                if (cmd === '/start') {
-                  response = `Welcome message sent to @${sampleUser.username}!`;
-                } else if (cmd === '/help') {
-                  response = `Sent help guidelines & command shortcuts to user.`;
-                } else if (cmd === '/status') {
-                  response = `Telemetry reported: CPU ${telemetry.cpuPercent}%, RAM ${telemetry.memoryUsageMB}MB.`;
-                } else if (cmd === 'ping') {
-                  response = `pong`;
-                }
-                LogManager.appendLog(
-                  botId,
-                  bUserId,
-                  'info',
-                  `[Terminal] [SUCCESS] Handled Update (ID: ${updateId}) | Response: "${response}" | Latency: ${Math.floor(Math.random() * 45 + 15)}ms`
-                );
-              }, 400);
-            } catch (e) {}
-          }
-        }
+//        // Simulate interactive request hits if the bot is actively running
+//        if (telemetry.state === 'ACTIVE') {
+//          // 40% chance every 5 seconds to simulate an incoming message update hit
+//          if (Math.random() < 0.4) {
+//            const sampleUsers = [
+//              { username: 'gaurav_b', id: 83948123 },
+//              { username: 'alicia_k', id: 72839122 },
+//              { username: 'john_doe', id: 48192312 },
+//              { username: 'telegram_tester', id: 93848123 }
+//            ];
+//            const sampleUser = sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
+//            const sampleCommands = ['/start', '/help', '/status', 'Hello bot!', 'Are you online?', '/info', 'ping'];
+//            const cmd = sampleCommands[Math.floor(Math.random() * sampleCommands.length)];
+//            const updateId = Math.floor(100000000 + Math.random() * 900000000);
+//
+//            const botObj = db.getBotDirect(botId);
+//            const bUserId = botObj ? botObj.user_id : 'system';
+//
+//            try {
+//              LogManager.appendLog(
+//                botId,
+//                bUserId,
+//                'info',
+//                `[Terminal] [INFO] Incoming Update (ID: ${updateId}) | User: @${sampleUser.username} (${sampleUser.id}) | Message: "${cmd}"`
+//              );
+//
+//              setTimeout(() => {
+//                let response = `Processed message "${cmd}" successfully.`;
+//                if (cmd === '/start') {
+//                  response = `Welcome message sent to @${sampleUser.username}!`;
+//                } else if (cmd === '/help') {
+//                  response = `Sent help guidelines & command shortcuts to user.`;
+//                } else if (cmd === '/status') {
+//                  response = `Telemetry reported: CPU ${telemetry.cpuPercent}%, RAM ${telemetry.memoryUsageMB}MB.`;
+//                } else if (cmd === 'ping') {
+//                  response = `pong`;
+//                }
+//                LogManager.appendLog(
+//                  botId,
+//                  bUserId,
+//                  'info',
+//                  `[Terminal] [SUCCESS] Handled Update (ID: ${updateId}) | Response: "${response}" | Latency: ${Math.floor(Math.random() * 45 + 15)}ms`
+//                );
+//              }, 400);
+//            } catch (e) {}
+//          }
+//        }
       }
     }, 5000);
   }

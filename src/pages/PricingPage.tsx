@@ -32,6 +32,26 @@ export const PricingPage: React.FC<PricingPageProps> = ({ navigate }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
+                <tr className="hover:bg-slate-50/50 transition-colors bg-emerald-50/30">
+                  <td className="p-4 sm:p-6">
+                    <div className="font-extrabold text-slate-900 text-base">Free 24-Hour Trial <span className="text-[10px] text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full ml-2 uppercase font-bold tracking-wider align-middle border border-emerald-200">One Time</span></div>
+                    <div className="text-xs text-slate-500 mt-1">Starts immediately upon clicking Start. Bot will auto-stop after 24 hours.</div>
+                  </td>
+                  <td className="p-4 sm:p-6 text-xs text-slate-600 space-y-1">
+                    <div>✓ Full Feature Access</div>
+                    <div>✓ 512 MB Storage limit</div>
+                    <div>✓ One per account</div>
+                  </td>
+                  <td className="p-4 sm:p-6 text-right font-black text-emerald-600 text-lg">
+                    ₹0
+                  </td>
+                  <td className="p-4 sm:p-6 text-center">
+                    <button onClick={() => navigate('/register')} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-xs transition-colors cursor-pointer">
+                      Start Free Trial
+                    </button>
+                  </td>
+                </tr>
+
                 <tr className="hover:bg-slate-50/50 transition-colors">
                   <td className="p-4 sm:p-6">
                     <div className="font-extrabold text-slate-900 text-base">200 MB <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full ml-2 uppercase font-bold tracking-wider align-middle">Starter</span></div>

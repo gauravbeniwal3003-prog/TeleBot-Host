@@ -1171,60 +1171,11 @@ class RelationalDatabase {
       bot.status = 'running';
       bot.is_active_slot = true;
       bot.cpu_usage = Math.round((Math.random() * 4 + 1.2) * 10) / 10;
-      bot.memory_usage_mb = Math.round(Math.random() * 80 + 90);
+      bot.memory_usage_mb = 0; // Initialize at 0, telemetry will update it
       bot.last_started_at = now;
       bot.uptime_seconds = 1;
 
       vpsWorkerClient.startBot(bot.id).catch((e) => console.error('Worker start error:', e));
-
-      const pid = Math.floor(40000 + Math.random() * 20000);
-      this.data.logs.push(
-        {
-          id: `log_${Date.now()}_start_1`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] START command received from user dashboard at ${new Date(now).toLocaleTimeString()} UTC.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_start_2`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] Allocating container sandbox resources (CPU quota: 50%, RAM limit: ${bot.memory_limit_mb || 512}MB).`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_start_3`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT PROCESS] Spawning python process: python3 ${bot.entry_point} (PID: ${pid})`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_start_4`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [TeleBot Host Engine] ${bot.name} started successfully. Connected to Telegram Gateway.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_start_5`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [INFO] Listening for incoming updates (Long Polling & Webhook router active).`,
-          timestamp: now,
-        }
-      );
     } else if (action === 'pause') {
       if (bot.status !== 'running') {
         throw new Error('Only running bots can be paused');

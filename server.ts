@@ -103,6 +103,15 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[TeleHost Server] Running on http://0.0.0.0:${PORT}`);
+    
+    // Auto-bootstrap python environment for AI Studio previews
+    if (process.env.NODE_ENV !== 'production') {
+      import('child_process').then(({ exec }) => {
+        exec('python3 -c "import telegram" || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip && pip3 install --break-system-packages python-telegram-bot aiogram pyTelegramBotAPI telebot telethon pyrogram)', (err) => {
+          if (!err) console.log('[TeleHost Python Sandbox] Core bot framework dependencies verified.');
+        });
+      });
+    }
   });
 }
 
