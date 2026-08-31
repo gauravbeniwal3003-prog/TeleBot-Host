@@ -210,7 +210,8 @@ class RelationalDatabase {
               start_date: new Date().toISOString(),
               expiry_date: expiry,
               auto_renew: false,
-              total_bot_slots: 1,
+              total_bot_slots: 3,
+              active_bot_count: 1,
               ram_limit_mb: 512,
               storage_limit_gb: 2,
               created_at: new Date().toISOString(),
@@ -515,7 +516,8 @@ class RelationalDatabase {
       start_date: '',
       expiry_date: '',
       auto_renew: false,
-      total_bot_slots: 1,
+      total_bot_slots: 3,
+      active_bot_count: 1,
       ram_limit_mb: 512,
       storage_limit_gb: 0.05,
       db_storage_mb: 50,
@@ -631,7 +633,8 @@ class RelationalDatabase {
       start_date: now,
       expiry_date: expiry,
       auto_renew: false,
-      total_bot_slots: 1,
+      total_bot_slots: 3,
+      active_bot_count: 1,
       ram_limit_mb: 512,
       storage_limit_gb: 2,
       created_at: now,
@@ -1146,12 +1149,12 @@ class RelationalDatabase {
     const bot = this.getBotById(botId, userId);
     if (!bot) throw new Error('Bot not found or unauthorized');
 
-    const sub = this.getUserSubscription(userId);
+    const sub = bot.project_id ? this.getProjectSubscription(bot.project_id) : this.getUserSubscription(userId);
     const userBots = this.getUserBots(userId);
     const maxActive = sub?.active_bot_count || Math.max(1, Math.floor((sub?.total_bot_slots || 3) / 3));
     const now = new Date().toISOString();
 
-    if (!this.isSubscriptionActive(userId)) {
+    if (!this.isSubscriptionActive(userId, bot.project_id)) {
       bot.status = 'expired';
       bot.is_active_slot = false;
       bot.cpu_usage = 0;

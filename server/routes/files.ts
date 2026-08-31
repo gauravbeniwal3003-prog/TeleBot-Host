@@ -3,6 +3,7 @@ import { db } from '../db/database';
 import { requireAuth, requireAdmin } from '../middleware/auth';
 import { StorageManager } from '../services/storageManager';
 import { PythonValidator } from '../services/pythonValidator';
+import { vpsWorkerClient } from '../services/vpsWorkerClient';
 import path from 'path';
 
 export const filesRouter = Router();
@@ -121,7 +122,7 @@ filesRouter.get('/storage/user-summary', (req: Request, res: Response): void => 
 });
 
 // 3. SAVE / CREATE / UPDATE FILE CONTENT (e.g. from in-browser code editor)
-filesRouter.post('/:botId/files', (req: Request, res: Response): void => {
+filesRouter.post('/:botId/files', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
     const botId = req.params.botId;
@@ -157,6 +158,13 @@ filesRouter.post('/:botId/files', (req: Request, res: Response): void => {
     const { file, totalStorageMB, validation } = db.saveBotFile(botId, userId, cleanPath, content);
     const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
 
+    // 6. Real-time sync to VPS sandbox
+    try {
+      await vpsWorkerClient.syncBotFile(botId, cleanPath, content);
+    } catch (err) {
+      console.error(`[VPS Sync] Non-fatal error during file save:`, err);
+    }
+
     res.json({
       file: {
         id: file.id,
@@ -179,7 +187,7 @@ filesRouter.post('/:botId/files', (req: Request, res: Response): void => {
 });
 
 // 4. UPLOAD FILE (Supports single or multi upload payload, Drag & Drop, with replacement detection)
-filesRouter.post('/:botId/files/upload', (req: Request, res: Response): void => {
+filesRouter.post('/:botId/files/upload', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
     const botId = req.params.botId;
@@ -221,6 +229,13 @@ filesRouter.post('/:botId/files/upload', (req: Request, res: Response): void => 
     // 3. Save file
     const { file, totalStorageMB, validation } = db.saveBotFile(botId, userId, cleanPath, rawContent);
     const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
+
+    // 4. Real-time sync to VPS sandbox
+    try {
+      await vpsWorkerClient.syncBotFile(botId, cleanPath, rawContent);
+    } catch (err) {
+      console.error(`[VPS Sync] Non-fatal error during file upload:`, err);
+    }
 
     db.logActivity({
       user_id: userId,

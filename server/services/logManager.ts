@@ -13,6 +13,8 @@
 import { db } from '../db/database';
 import { DBBotLog } from '../db/schema';
 import { ErrorTranslator, TranslatedError } from './errorTranslator';
+import { execSync } from 'child_process';
+import fs from 'fs';
 
 export interface BotLogQueryOptions {
   search?: string;
@@ -134,7 +136,47 @@ export class LogManager {
     totalCount: number;
     filteredCount: number;
   } {
-    const rawLogs = db.getBotLogs(botId, userId, 1000);
+    let rawLogs = db.getBotLogs(botId, userId, 1000);
+
+    // Fetch real-time VPS execution logs natively via journalctl
+    if (fs.existsSync('/var/telebot-data/bots')) {
+      try {
+        const journalOutput = execSync(`journalctl -u telebot-bot-${botId} --no-pager -n 150 -o short-iso`).toString();
+        const lines = journalOutput.split('\n').filter(l => l.trim().length > 0);
+        
+        const terminalLogs = lines.map((line, idx) => {
+          // parse ISO time from start of line if possible
+          const match = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))\s+(.*)/);
+          let ts = new Date().toISOString();
+          let msg = line;
+          if (match) {
+            ts = match[1];
+            msg = match[2];
+          }
+          
+          let lvl = 'info';
+          const msgLower = msg.toLowerCase();
+          if (msgLower.includes('error') || msgLower.includes('traceback') || msgLower.includes('exception')) lvl = 'error';
+          else if (msgLower.includes('warn')) lvl = 'warn';
+          
+          return {
+            id: `term_${Date.now()}_${idx}`,
+            bot_id: botId,
+            project_id: 'vps',
+            user_id: userId,
+            level: lvl,
+            message: `[Terminal] ${msg}`,
+            timestamp: ts
+          } as DBBotLog;
+        });
+
+        // Merge DB logs and Terminal Logs, then sort by timestamp descending
+        rawLogs = [...rawLogs, ...terminalLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      } catch (err) {
+        // journalctl may fail if unit doesn't exist yet
+      }
+    }
+
     const totalCount = rawLogs.length;
 
     let filtered = rawLogs;

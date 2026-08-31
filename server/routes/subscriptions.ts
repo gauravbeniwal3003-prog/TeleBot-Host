@@ -476,14 +476,14 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
 
 import crypto from 'crypto';
 
-// 7.b SECURE CASHFREE WEBHOOK
-subscriptionsRouter.post('/orders/cashfree-webhook', async (req: Request, res: Response): Promise<void> => {
+// 7.b SECURE CASHFREE WEBHOOK (Supports both standard orders notifyUrl and manual dashboard config path)
+const handleCashfreeWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
     const signature = req.headers['x-webhook-signature'] as string;
     const timestamp = req.headers['x-webhook-timestamp'] as string;
     const bodyString = JSON.stringify(req.body); // For webhook signature verification
     
-    const cfSecret = process.env.CASHFREE_CLIENT_SECRET;
+    const cfSecret = process.env.CASHFREE_SECRET_KEY || process.env.CASHFREE_CLIENT_SECRET;
     if (cfSecret && signature && timestamp) {
        const dataToHash = timestamp + bodyString;
        const expectedSignature = crypto.createHmac('sha256', cfSecret).update(dataToHash).digest('base64');
@@ -514,7 +514,10 @@ subscriptionsRouter.post('/orders/cashfree-webhook', async (req: Request, res: R
     console.error('Webhook processing failed:', error);
     res.status(400).json({ error: 'Webhook processing failed' });
   }
-});
+};
+
+subscriptionsRouter.post('/orders/cashfree-webhook', handleCashfreeWebhook);
+subscriptionsRouter.post('/payments/cashfree-webhook', handleCashfreeWebhook);
 
 // 8. GET USER ORDER HISTORY
 subscriptionsRouter.get('/orders', requireAuth, (req: Request, res: Response): void => {

@@ -59,10 +59,6 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
       addToast('error', 'Please enter a name for your bot');
       return;
     }
-    if (!botToken.trim()) {
-      addToast('error', 'Please enter your Telegram Bot Token from @BotFather');
-      return;
-    }
 
     setDeployingLoader(true);
     try {
@@ -259,7 +255,7 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
             <div className="space-y-1">
               <h3 className="font-extrabold text-slate-900 text-base">Setup Your Active Sandbox</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Activation successful! Enter a display name and Telegram token to bind this container workspace to your Telegram application.
+                Activation successful! Enter a display name to bind this container workspace to your Telegram application.
               </p>
             </div>
 
@@ -277,21 +273,20 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">Telegram Bot Token</label>
+                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">Telegram Bot Token (Optional)</label>
                 <input
                   type="text"
-                  required
                   placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsT"
                   value={botToken}
                   onChange={(e) => setBotToken(e.target.value)}
                   className="w-full border border-slate-300 rounded-xl px-3.5 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/30 text-slate-900"
                 />
-                <p className="text-[10px] text-slate-400">Copy this secure token from `@BotFather` on Telegram.</p>
+                <p className="text-[10px] text-slate-400">Optional. You can provide this later in your code or via env vars.</p>
               </div>
 
               <button
                 type="submit"
-                disabled={deployingLoader || !botName.trim() || !botToken.trim()}
+                disabled={deployingLoader || !botName.trim()}
                 className="w-full py-3 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer mt-4"
               >
                 {deployingLoader ? (

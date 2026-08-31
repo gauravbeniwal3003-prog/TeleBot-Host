@@ -140,6 +140,29 @@ export class BotRunnerWorker extends EventEmitter {
   }
 
   /**
+   * Synchronize a specific file directly to the VPS in real-time
+   */
+  public syncFileToVPS(botId: string, filePath: string, content: string): void {
+    const isVPS = fs.existsSync('/var/telebot-data/bots');
+    if (!isVPS) return;
+
+    try {
+      const botsBaseDir = '/var/telebot-data/bots';
+      const botDir = path.join(botsBaseDir, botId);
+      const fullPath = path.join(botDir, filePath);
+      
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, content, 'utf-8');
+      
+      try {
+        execSync(`chown -R 10001:10001 "${botDir}"`);
+      } catch (e) {}
+    } catch (err) {
+      console.error(`[VPS Sync] Failed to sync file ${filePath} for bot ${botId}:`, err);
+    }
+  }
+
+  /**
    * Start bot container in an active slot
    */
   public startBot(botId: string): { success: boolean; state: ContainerState; message: string; telemetry?: ContainerTelemetry } {
@@ -211,7 +234,15 @@ export class BotRunnerWorker extends EventEmitter {
         } catch {}
 
         // 5. Execute run-bot-isolated.sh via systemd-run
-        const entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
+        let entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
+        if (!fs.existsSync(path.join(botDir, entryPoint))) {
+          const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
+          if (pyFiles.length > 0) {
+            const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
+            entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
+          }
+        }
+        
         const ramLimit = bot ? bot.memory_limit_mb || 80 : 80;
         execSync(`bash /opt/telebot-host/run-bot-isolated.sh "${botId}" "${botDir}" "${entryPoint}" "${ramLimit}"`);
 

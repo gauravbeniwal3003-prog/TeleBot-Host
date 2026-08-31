@@ -35,6 +35,14 @@ export class VPSWorkerClient {
   }
 
   /**
+   * Synchronize a specific file directly to the VPS in real-time
+   */
+  public async syncBotFile(botId: string, filePath: string, content: string): Promise<void> {
+    this.authenticate();
+    botRunnerWorker.syncFileToVPS(botId, filePath, content);
+  }
+
+  /**
    * Provision container sandbox for a new or updated bot
    */
   public async provisionSandbox(params: {
