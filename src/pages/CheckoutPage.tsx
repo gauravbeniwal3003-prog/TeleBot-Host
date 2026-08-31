@@ -211,10 +211,17 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ navigate, searchPara
       }
 
       // Fallback for mock/simulation without Cashfree keys
-      await api.verifyPayment(order.orderId, selectedMethod);
+      const actualOrderId = order.orderId || (order as any).order_id || cashfreePayload?.orderId;
+      const actualTotalAmount = order.totalAmount ?? (order as any).total_amount ?? order.amount ?? (order as any).amount;
+
+      if (!actualOrderId) {
+        throw new Error('Order ID is missing from response');
+      }
+
+      await api.verifyPayment(actualOrderId, selectedMethod);
 
       navigate(
-        `/payment-success?orderId=${order.orderId}&amount=${order.totalAmount}&currency=${currency}&plan=${encodeURIComponent(
+        `/payment-success?orderId=${actualOrderId}&amount=${actualTotalAmount}&currency=${currency}&plan=${encodeURIComponent(
           planName
         )}`
       );

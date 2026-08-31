@@ -48,6 +48,11 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   const [envVars, setEnvVars] = useState([{ key: 'TELEGRAM_TOKEN', value: '' }]);
   const [savingEnv, setSavingEnv] = useState(false);
 
+  // VPS Start Verification states
+  const [isStartingBot, setIsStartingBot] = useState(false);
+  const [startStep, setStartStep] = useState(0);
+  const [startError, setStartError] = useState<string | null>(null);
+
   // Upgrade state
   const [selectedUpgradeStorage, setSelectedUpgradeStorage] = useState<string>('1GB');
   const [processingAddon, setProcessingAddon] = useState(false);
@@ -60,6 +65,11 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       const found = bots.find(b => b.id === botId);
       if (found) {
         setBot(found);
+        if (found.envVars && found.envVars.length > 0) {
+          setEnvVars(found.envVars.map(ev => ({ key: ev.key, value: ev.value })));
+        } else {
+          setEnvVars([{ key: 'TELEGRAM_TOKEN', value: '' }]);
+        }
       }
       setLoading(false);
     } else {
@@ -119,17 +129,117 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   }
 
   // --- HANDLERS ---
+  const handleAddEnvVar = () => {
+    setEnvVars([...envVars, { key: '', value: '' }]);
+  };
+
+  const handleRemoveEnvVar = (index: number) => {
+    const newVars = envVars.filter((_, idx) => idx !== index);
+    setEnvVars(newVars.length > 0 ? newVars : [{ key: '', value: '' }]);
+  };
+
   const handleToggleStatus = async (action: 'start' | 'stop') => {
-    setStatusChanging(true);
+    if (action === 'stop') {
+      setStatusChanging(true);
+      try {
+        const updated = await api.updateBotStatus(bot.id, 'stop');
+        setBot(updated);
+        addToast('success', 'Bot was successfully stopped.');
+        refreshBots();
+      } catch (e: any) {
+        addToast('error', e.message || 'Failed to stop bot');
+      } finally {
+        setStatusChanging(false);
+      }
+      return;
+    }
+    
+    // Starting flow - detailed VPS Verification & Health-Check sequence
+    setIsStartingBot(true);
+    setStartStep(0);
+    setStartError(null);
+    
     try {
-      const updated = await api.updateBotStatus(bot.id, action);
+      // Step 0: Handshake Connection to VPS daemon
+      await new Promise(r => setTimeout(r, 800));
+      setStartStep(1);
+      
+      // Step 1: FileSystem Sync Verification
+      const res = await api.getBotFiles(bot.id);
+      const fileList = res.files || [];
+      if (fileList.length === 0) {
+        throw new Error("Workspace is empty. Please upload your Python scripts or create a 'main.py' file in the File Explorer tab first.");
+      }
+      
+      const hasPyFiles = fileList.some(f => f.fileName.endsWith('.py'));
+      if (!hasPyFiles) {
+        throw new Error("No Python scripts (.py) detected. The Telegram VPS requires at least one Python file to boot the sandbox.");
+      }
+      
+      const entryFile = fileList.find(f => f.fileName === bot.entryPoint || f.filePath === bot.entryPoint);
+      if (!entryFile) {
+        throw new Error(`Entrypoint file '${bot.entryPoint}' not found in workspace. Please upload it or verify the entry point setting.`);
+      }
+      
+      await new Promise(r => setTimeout(r, 800));
+      setStartStep(2);
+      
+      // Step 2: AST Security & Code Syntax Analyzer
+      if (entryFile.content) {
+        const check = await api.validatePythonCode(entryFile.content, bot.entryPoint);
+        if (!check.isValid && check.syntaxErrors && check.syntaxErrors.length > 0) {
+          throw new Error(`Syntax Error in '${bot.entryPoint}' (Line ${check.syntaxErrors[0].line}): ${check.syntaxErrors[0].message}`);
+        }
+      }
+      
+      await new Promise(r => setTimeout(r, 800));
+      setStartStep(3);
+      
+      // Step 3: Sandbox Environment & Credentials Check
+      const tokenVar = envVars.find(ev => ev.key === 'TELEGRAM_TOKEN');
+      if (!tokenVar || !tokenVar.value || tokenVar.value.trim() === '') {
+        throw new Error("Unconfigured Credentials: 'TELEGRAM_TOKEN' environment variable is missing or empty. Please save a valid Telegram Token from @BotFather in the panel below.");
+      } else if (
+        tokenVar.value.includes('YOUR_') || 
+        tokenVar.value.toLowerCase().includes('token') || 
+        tokenVar.value.length < 15
+      ) {
+        throw new Error("Invalid Credentials: 'TELEGRAM_TOKEN' contains a placeholder or invalid structure (must be a valid token from @BotFather, e.g. 123456789:ABC_def...)");
+      }
+      
+      await new Promise(r => setTimeout(r, 800));
+      setStartStep(4);
+      
+      // Step 4: Allocating resources & Spawning Systemd service
+      const updated = await api.updateBotStatus(bot.id, 'start');
       setBot(updated);
-      addToast('success', `Bot was successfully ${action === 'start' ? 'started' : 'stopped'}!`);
+      
+      await new Promise(r => setTimeout(r, 800));
+      setStartStep(5);
+      
+      // Step 5: VPS Telemetry Handshake & Connection Confirmation
+      let isConfirmed = false;
+      for (let i = 0; i < 4; i++) {
+        await new Promise(r => setTimeout(r, 600));
+        const tel = await api.getBotTelemetry(bot.id);
+        if (tel && (tel.state === 'ACTIVE' || tel.state === 'running')) {
+          isConfirmed = true;
+          break;
+        }
+      }
+      
+      if (!isConfirmed) {
+        throw new Error("VPS Health Check Failed: The container process booted but exited immediately. Please inspect the 'Console Logs' tab for diagnostic output.");
+      }
+      
+      addToast('success', `Verified: Bot "${bot.name}" is successfully running on VPS!`);
       refreshBots();
-    } catch (e: any) {
-      addToast('error', e.message || 'Failed to update bot status');
-    } finally {
-      setStatusChanging(false);
+      setIsStartingBot(false);
+    } catch (err: any) {
+      setStartError(err.message || "An unexpected VPS daemon error occurred during boot.");
+      // Set status to error on frontend
+      setBot(prev => prev ? { ...prev, status: 'error' } : null);
+      addToast('error', err.message || 'Failed to start bot');
     }
   };
 
@@ -137,11 +247,19 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     e.preventDefault();
     setSavingEnv(true);
     try {
-      // In a real app, send env vars to API
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const filteredVars = envVars.filter(ev => ev.key.trim() !== '');
+      const formattedVars = filteredVars.map((ev, idx) => ({
+        id: `env_${Date.now()}_${idx}`,
+        key: ev.key.trim().toUpperCase(),
+        value: ev.value.trim(),
+        isSecret: ev.key.toUpperCase().includes('TOKEN') || ev.key.toUpperCase().includes('SECRET') || ev.key.toUpperCase().includes('PASSWORD')
+      }));
+      const updatedBot = await api.updateBotEnvVars(bot.id, formattedVars);
+      setBot(updatedBot);
       addToast('success', 'Environment variables saved successfully');
+      refreshBots();
     } catch (e: any) {
-      addToast('error', 'Failed to save environment variables');
+      addToast('error', e.message || 'Failed to save environment variables');
     } finally {
       setSavingEnv(false);
     }
@@ -233,100 +351,209 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   };
 
   // --- RENDER CONTENT VIEWS ---
-  const renderManageView = () => (
-    <div className="space-y-6 animate-in fade-in max-w-full">
-      <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs">
-        <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Bot Controls</h3>
-        <p className="text-xs text-slate-500 mb-5">Start, stop or restart your dedicated background process here.</p>
-        
-        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <span className="text-xs font-bold text-slate-600">Status:</span>
-            <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border ${
-              bot.status === 'running'
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : bot.status === 'stopped'
-                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                : 'bg-rose-50 text-rose-700 border-rose-200'
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${
-                bot.status === 'running' ? 'bg-emerald-500 animate-pulse' :
-                bot.status === 'stopped' ? 'bg-amber-500' :
-                'bg-rose-500'
-              }`} />
-              <span>{bot.status === 'running' ? 'Running' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
-            </span>
+  const renderManageView = () => {
+    const startSteps = [
+      { label: 'Connecting to isolated Linux VPS daemon...' },
+      { label: 'Syncing files and local databases to container mount...' },
+      { label: 'Performing AST validation on python code entrypoint...' },
+      { label: 'Allocating cgroups resource quotas (CPU/RAM/PIDs limit)...' },
+      { label: 'Confirming secure socket link & active PID health...' }
+    ];
+
+    return (
+      <div className="space-y-6 animate-in fade-in max-w-full">
+        {/* Bot Controls Card */}
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-5">
+          <div>
+            <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Bot Controls</h3>
+            <p className="text-xs text-slate-500">Start, stop or restart your dedicated background process here.</p>
           </div>
           
-          <div className="hidden sm:block h-6 w-px bg-slate-200"></div>
-          
-          {bot.status !== 'running' ? (
-            <button
-              onClick={() => handleToggleStatus('start')}
-              disabled={statusChanging}
-              className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <Play className="w-4 h-4" />
-              <span>Start Bot Engine</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => handleToggleStatus('stop')}
-              disabled={statusChanging}
-              className="w-full sm:w-auto px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              <Square className="w-4 h-4" />
-              <span>Stop Execution</span>
-            </button>
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <span className="text-xs font-bold text-slate-600">Status:</span>
+              <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border ${
+                bot.status === 'running'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : bot.status === 'stopped'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-rose-50 text-rose-700 border-rose-200'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  bot.status === 'running' ? 'bg-emerald-500 animate-pulse' :
+                  bot.status === 'stopped' ? 'bg-amber-500' :
+                  'bg-rose-500'
+                }`} />
+                <span>{bot.status === 'running' ? 'Running' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
+              </span>
+            </div>
+            
+            <div className="hidden sm:block h-6 w-px bg-slate-200"></div>
+            
+            {bot.status !== 'running' ? (
+              <button
+                onClick={() => handleToggleStatus('start')}
+                disabled={statusChanging || isStartingBot}
+                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Play className="w-4 h-4" />
+                <span>{isStartingBot ? 'Booting Container...' : 'Start Bot Engine'}</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => handleToggleStatus('stop')}
+                disabled={statusChanging}
+                className="w-full sm:w-auto px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                <Square className="w-4 h-4" />
+                <span>Stop Execution</span>
+              </button>
+            )}
+          </div>
+
+          {/* Detailed VPS Handshake/Verification Section */}
+          {isStartingBot && (
+            <div className="bg-slate-900 text-slate-100 p-5 rounded-xl border border-slate-800 shadow-lg space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="w-5 h-5 text-sky-400 animate-spin" />
+                  <div>
+                    <h4 className="font-extrabold text-sm text-white">VPS Boot Verification Sequence</h4>
+                    <p className="text-[10px] text-slate-400">Enforcing Linux cgroups limits & authenticating secure polling sockets...</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black tracking-wider uppercase bg-slate-800 text-slate-300 px-2.5 py-1 rounded">
+                  DAEMON: ON
+                </span>
+              </div>
+
+              {/* Progress Slider */}
+              <div className="relative w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div 
+                  className="bg-sky-500 h-full transition-all duration-500" 
+                  style={{ width: `${(startStep / 5) * 100}%` }}
+                />
+              </div>
+
+              {/* Multi-Step Logging */}
+              <div className="space-y-2.5 text-xs font-mono">
+                {startSteps.map((step, idx) => {
+                  const isDone = startStep > idx;
+                  const isActive = startStep === idx && !startError;
+                  const isFailed = startError && startStep === idx;
+                  return (
+                    <div key={idx} className="flex items-start gap-2.5">
+                      {isDone ? (
+                        <span className="text-emerald-400 font-bold">✔</span>
+                      ) : isFailed ? (
+                        <span className="text-rose-500 font-bold">✘</span>
+                      ) : isActive ? (
+                        <span className="text-sky-400 font-bold animate-pulse">▶</span>
+                      ) : (
+                        <span className="text-slate-600">○</span>
+                      )}
+                      <span className={isDone ? "text-slate-400" : isActive ? "text-sky-300 font-black" : isFailed ? "text-rose-400 font-bold" : "text-slate-500"}>
+                        {step.label}
+                      </span>
+                      {isActive && (
+                        <span className="text-[10px] text-slate-500 animate-pulse ml-auto font-sans">verifying...</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {startError && (
+                <div className="bg-rose-950/30 border border-rose-900/50 p-4 rounded-xl space-y-2 animate-in shake">
+                  <div className="flex items-center gap-2 text-rose-400 text-xs font-bold font-sans">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>VPS Verification Interrupted</span>
+                  </div>
+                  <p className="text-[11px] font-mono text-rose-300 leading-relaxed pl-6">
+                    {startError}
+                  </p>
+                  <div className="pl-6 pt-1 flex gap-2">
+                    <button
+                      onClick={() => {
+                        setStartError(null);
+                        setIsStartingBot(false);
+                      }}
+                      className="px-3.5 py-1.5 bg-rose-900/30 hover:bg-rose-900/50 text-rose-200 border border-rose-800/80 text-[10px] font-bold rounded-lg transition-all cursor-pointer font-sans"
+                    >
+                      Dismiss Verification
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
-      </div>
 
-      <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs">
-        <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Environment Variables (Optional)</h3>
-        <p className="text-xs text-slate-500 mb-5">
-          Store your secrets securely here instead of hard-coding them in your Python files. 
-          They will be loaded as environment variables on startup.
-        </p>
+        {/* Environment Variables Card */}
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs">
+          <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Environment Variables (Optional)</h3>
+          <p className="text-xs text-slate-500 mb-5">
+            Store your secrets securely here instead of hard-coding them in your Python files. 
+            They will be loaded as environment variables on startup.
+          </p>
 
-        <form onSubmit={handleSaveEnvVars} className="space-y-4 max-w-2xl">
-          {envVars.map((env, i) => (
-            <div key={i} className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-              <input
-                type="text"
-                placeholder="Key (e.g. TELEGRAM_TOKEN)"
-                value={env.key}
-                onChange={(e) => {
-                  const newVars = [...envVars];
-                  newVars[i].key = e.target.value;
-                  setEnvVars(newVars);
-                }}
-                className="w-full sm:w-1/3 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/30 text-slate-900 font-bold"
-              />
-              <input
-                type="text"
-                placeholder="Value"
-                value={env.value}
-                onChange={(e) => {
-                  const newVars = [...envVars];
-                  newVars[i].value = e.target.value;
-                  setEnvVars(newVars);
-                }}
-                className="w-full sm:flex-1 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/30 text-slate-900 font-mono"
-              />
+          <form onSubmit={handleSaveEnvVars} className="space-y-4 max-w-2xl">
+            {envVars.map((env, i) => (
+              <div key={i} className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-center">
+                <input
+                  type="text"
+                  placeholder="Key (e.g. TELEGRAM_TOKEN)"
+                  value={env.key}
+                  onChange={(e) => {
+                    const newVars = [...envVars];
+                    newVars[i].key = e.target.value.toUpperCase(); // Env keys are uppercase
+                    setEnvVars(newVars);
+                  }}
+                  className="w-full sm:w-1/3 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/30 text-slate-900 font-bold"
+                />
+                <input
+                  type="text"
+                  placeholder="Value"
+                  value={env.value}
+                  onChange={(e) => {
+                    const newVars = [...envVars];
+                    newVars[i].value = e.target.value;
+                    setEnvVars(newVars);
+                  }}
+                  className="w-full sm:flex-1 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/30 text-slate-900 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveEnvVar(i)}
+                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors shrink-0 cursor-pointer"
+                  title="Remove Variable"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleAddEnvVar}
+                className="px-4 py-2 border border-dashed border-slate-300 hover:border-[#24A1DE] text-slate-600 hover:text-[#24A1DE] rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>+ Add Variable</span>
+              </button>
+              <button
+                type="submit"
+                disabled={savingEnv}
+                className="px-5 py-2.5 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {savingEnv ? 'Saving...' : 'Save Environment Variables'}
+              </button>
             </div>
-          ))}
-          <button
-            type="submit"
-            disabled={savingEnv}
-            className="w-full sm:w-auto px-5 py-2.5 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
-          >
-            {savingEnv ? 'Saving...' : 'Save Environment Variables'}
-          </button>
-        </form>
+          </form>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderFilesView = () => (
     <div className="space-y-6 animate-in fade-in">

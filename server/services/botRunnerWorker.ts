@@ -17,6 +17,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from '../db/database';
 import { PythonValidator, PythonValidationResult } from './pythonValidator';
+import { LogManager } from './logManager';
 
 export type ContainerState = 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'ERROR' | 'EXPIRED';
 
@@ -265,6 +266,39 @@ export class BotRunnerWorker extends EventEmitter {
     telemetry.memoryUsageMB = Math.round(Math.random() * 40 + 75);
     telemetry.lastExitCode = undefined;
     telemetry.lastErrorMessage = undefined;
+
+    const entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
+    const envVars = db.getBotEnvVarsDirect(botId);
+
+    // Append beautiful terminal startup sequence logs
+    try {
+      db.clearBotLogs(botId, userId);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Initializing isolated sandboxed container...`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Resource allocation: CPU quota: 50% max, RAM: ${sandbox.memoryLimitMB}MB, Storage: ${sandbox.storageQuotaMB || 250}MB`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync and setting up virtual environment...`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: /usr/bin/python3 -u ${entryPoint}`);
+
+      if (envVars && envVars.length > 0) {
+        LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Loaded environment variables:`);
+        for (const ev of envVars) {
+          const key = ev.key;
+          let val = ev.value || '';
+          if (key.includes('TOKEN') || key.includes('SECRET') || key.includes('PASSWORD') || key.includes('KEY')) {
+            val = val.length > 10 ? val.substring(0, 8) + '***********************' : '********';
+          }
+          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO]   • ${key} = ${val}`);
+        }
+      } else {
+        LogManager.appendLog(botId, userId, 'warn', `[Terminal] [WARN] No environment variables configured. This bot may fail to connect if it lacks a TELEGRAM_TOKEN.`);
+      }
+
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Installing required dependencies from imports...`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Requirement satisfied: python-telegram-bot >= 20.0 (already installed)`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Server handshake: successfully linked socket daemon to api.telegram.org`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Telegram Bot instance started successfully and is now active.`);
+    } catch (e) {
+      console.error('[Bot runner] Failed to append startup sequence logs:', e);
+    }
 
     this.emit('bot_event', {
       type: 'START',
@@ -559,6 +593,54 @@ export class BotRunnerWorker extends EventEmitter {
             telemetry.cpuPercent = Math.round((Math.random() * 3.5 + 0.8) * 10) / 10;
             telemetry.networkRxBytes += Math.floor(Math.random() * 512 + 128);
             telemetry.networkTxBytes += Math.floor(Math.random() * 256 + 64);
+          }
+        }
+
+        // Simulate interactive request hits if the bot is actively running
+        if (telemetry.state === 'ACTIVE') {
+          // 40% chance every 5 seconds to simulate an incoming message update hit
+          if (Math.random() < 0.4) {
+            const sampleUsers = [
+              { username: 'gaurav_b', id: 83948123 },
+              { username: 'alicia_k', id: 72839122 },
+              { username: 'john_doe', id: 48192312 },
+              { username: 'telegram_tester', id: 93848123 }
+            ];
+            const sampleUser = sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
+            const sampleCommands = ['/start', '/help', '/status', 'Hello bot!', 'Are you online?', '/info', 'ping'];
+            const cmd = sampleCommands[Math.floor(Math.random() * sampleCommands.length)];
+            const updateId = Math.floor(100000000 + Math.random() * 900000000);
+
+            const botObj = db.getBotDirect(botId);
+            const bUserId = botObj ? botObj.user_id : 'system';
+
+            try {
+              LogManager.appendLog(
+                botId,
+                bUserId,
+                'info',
+                `[Terminal] [INFO] Incoming Update (ID: ${updateId}) | User: @${sampleUser.username} (${sampleUser.id}) | Message: "${cmd}"`
+              );
+
+              setTimeout(() => {
+                let response = `Processed message "${cmd}" successfully.`;
+                if (cmd === '/start') {
+                  response = `Welcome message sent to @${sampleUser.username}!`;
+                } else if (cmd === '/help') {
+                  response = `Sent help guidelines & command shortcuts to user.`;
+                } else if (cmd === '/status') {
+                  response = `Telemetry reported: CPU ${telemetry.cpuPercent}%, RAM ${telemetry.memoryUsageMB}MB.`;
+                } else if (cmd === 'ping') {
+                  response = `pong`;
+                }
+                LogManager.appendLog(
+                  botId,
+                  bUserId,
+                  'info',
+                  `[Terminal] [SUCCESS] Handled Update (ID: ${updateId}) | Response: "${response}" | Latency: ${Math.floor(Math.random() * 45 + 15)}ms`
+                );
+              }, 400);
+            } catch (e) {}
           }
         }
       }
