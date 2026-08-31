@@ -35,6 +35,17 @@
       "created_at": "2026-08-30T09:08:48.822Z",
       "updated_at": "2026-08-30T09:08:48.822Z",
       "status": "active"
+    },
+    {
+      "id": "usr_26098499",
+      "email": "test_login_check@example.com",
+      "password_hash": "$2b$10$UkFB07eDuyR5Gnah3bATEeqvHZ.0n.tzJ.MrK8L6CpXATSUvYnYbK",
+      "name": "Tester",
+      "telegram_username": "@tester",
+      "role": "user",
+      "is_verified": true,
+      "created_at": "2026-08-31T13:07:19.263Z",
+      "updated_at": "2026-08-31T13:07:19.263Z"
     }
   ],
   "projects": [
@@ -58,6 +69,13 @@
       "name": "My Telegram Bots",
       "created_at": "2026-08-30T09:08:48.822Z",
       "updated_at": "2026-08-30T09:08:48.822Z"
+    },
+    {
+      "id": "proj_57333591",
+      "user_id": "usr_26098499",
+      "name": "My Telegram Bots",
+      "created_at": "2026-08-31T13:07:19.263Z",
+      "updated_at": "2026-08-31T13:07:19.263Z"
     }
   ],
   "subscriptions": [
@@ -116,6 +134,27 @@
       "max_file_size_mb": 5,
       "created_at": "2026-08-30T09:08:48.822Z",
       "updated_at": "2026-08-30T09:08:48.822Z"
+    },
+    {
+      "id": "sub_983427",
+      "user_id": "usr_26098499",
+      "project_id": "proj_57333591",
+      "plan_id": "starter",
+      "plan_name": "Starter Bot Plan (Free Trial)",
+      "status": "trial",
+      "trial_started": false,
+      "trial_started_at": null,
+      "start_date": "",
+      "expiry_date": "",
+      "auto_renew": false,
+      "total_bot_slots": 3,
+      "active_bot_count": 1,
+      "ram_limit_mb": 512,
+      "storage_limit_gb": 0.05,
+      "db_storage_mb": 50,
+      "max_file_size_mb": 5,
+      "created_at": "2026-08-31T13:07:19.263Z",
+      "updated_at": "2026-08-31T13:07:19.263Z"
     }
   ],
   "bots": [
@@ -434,6 +473,27 @@
     }
   ],
   "activity_logs": [
+    {
+      "user_id": "usr_26098499",
+      "action": "user.login",
+      "target_type": "auth",
+      "ip_address": "127.0.0.1",
+      "user_agent": "curl/7.88.1",
+      "id": "act_1788181642944_999",
+      "created_at": "2026-08-31T13:07:22.944Z"
+    },
+    {
+      "user_id": "usr_26098499",
+      "action": "user.register",
+      "target_type": "user",
+      "target_id": "usr_26098499",
+      "details": {
+        "email": "test_login_check@example.com",
+        "plan": "starter_trial"
+      },
+      "id": "act_1788181639265_547",
+      "created_at": "2026-08-31T13:07:19.265Z"
+    },
     {
       "user_id": "usr_73237977",
       "action": "bot.file_delete",
