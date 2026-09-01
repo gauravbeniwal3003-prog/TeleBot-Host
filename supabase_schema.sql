@@ -40,18 +40,51 @@ CREATE TABLE IF NOT EXISTS hosting_plans (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 2.5 PROJECTS TABLE
+CREATE TABLE IF NOT EXISTS projects (
+    id VARCHAR(100) PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(150) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 3. USER SUBSCRIPTIONS TABLE
 CREATE TABLE IF NOT EXISTS user_subscriptions (
     id VARCHAR(100) PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(100) REFERENCES projects(id) ON DELETE SET NULL,
     plan_id VARCHAR(50) NOT NULL REFERENCES hosting_plans(id),
+    plan_name VARCHAR(100) NOT NULL DEFAULT 'Starter Bot Plan',
     status VARCHAR(30) DEFAULT 'trial' CHECK (status IN ('trial', 'active', 'past_due', 'cancelled', 'expired')),
+    trial_started BOOLEAN DEFAULT FALSE,
+    trial_started_at TIMESTAMPTZ,
     start_date TIMESTAMPTZ DEFAULT NOW(),
     expiry_date TIMESTAMPTZ NOT NULL,
     auto_renew BOOLEAN DEFAULT TRUE,
     total_bot_slots INTEGER NOT NULL DEFAULT 1,
     ram_limit_mb INTEGER NOT NULL DEFAULT 512,
-    storage_limit_gb INTEGER NOT NULL DEFAULT 2,
+    storage_limit_gb NUMERIC(10,3) NOT NULL DEFAULT 2.000,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3.5 COMPATIBILITY SUBSCRIPTIONS TABLE
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id VARCHAR(100) PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(100) REFERENCES projects(id) ON DELETE SET NULL,
+    plan_id VARCHAR(50) NOT NULL REFERENCES hosting_plans(id),
+    plan_name VARCHAR(100) NOT NULL DEFAULT 'Starter Plan',
+    status VARCHAR(30) DEFAULT 'trial' CHECK (status IN ('trial', 'active', 'past_due', 'cancelled', 'expired')),
+    trial_started BOOLEAN DEFAULT FALSE,
+    trial_started_at TIMESTAMPTZ,
+    start_date TIMESTAMPTZ DEFAULT NOW(),
+    expiry_date TIMESTAMPTZ NOT NULL,
+    auto_renew BOOLEAN DEFAULT TRUE,
+    total_bot_slots INTEGER NOT NULL DEFAULT 1,
+    ram_limit_mb INTEGER NOT NULL DEFAULT 512,
+    storage_limit_gb NUMERIC(10,3) NOT NULL DEFAULT 2.000,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -60,6 +93,36 @@ CREATE TABLE IF NOT EXISTS user_subscriptions (
 CREATE TABLE IF NOT EXISTS telegram_bots (
     id VARCHAR(50) PRIMARY KEY,
     user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(100) REFERENCES projects(id) ON DELETE SET NULL,
+    name VARCHAR(150) NOT NULL,
+    username VARCHAR(100) NOT NULL,
+    framework VARCHAR(50) NOT NULL,
+    version VARCHAR(100) NOT NULL,
+    status VARCHAR(30) DEFAULT 'stopped' CHECK (status IN ('running', 'stopped', 'restarting', 'error', 'deploying', 'paused')),
+    is_active_slot BOOLEAN DEFAULT FALSE,
+    entry_point VARCHAR(255) DEFAULT 'main.py',
+    git_repo_url TEXT,
+    has_database BOOLEAN DEFAULT FALSE,
+    db_type VARCHAR(30),
+    webhook_enabled BOOLEAN DEFAULT FALSE,
+    webhook_url TEXT,
+    cpu_usage NUMERIC(5,2) DEFAULT 0.0,
+    memory_usage_mb INTEGER DEFAULT 0,
+    memory_limit_mb INTEGER DEFAULT 512,
+    storage_usage_mb NUMERIC(8,2) DEFAULT 0.0,
+    uptime_seconds BIGINT DEFAULT 0,
+    restart_count INTEGER DEFAULT 0,
+    last_deployed_at TIMESTAMPTZ DEFAULT NOW(),
+    last_started_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4.5 COMPATIBILITY BOTS DATABASE TABLE
+CREATE TABLE IF NOT EXISTS bots (
+    id VARCHAR(50) PRIMARY KEY,
+    user_id VARCHAR(100) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    project_id VARCHAR(100) REFERENCES projects(id) ON DELETE SET NULL,
     name VARCHAR(150) NOT NULL,
     username VARCHAR(100) NOT NULL,
     framework VARCHAR(50) NOT NULL,
