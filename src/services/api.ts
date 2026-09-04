@@ -282,6 +282,29 @@ class ApiService {
     });
   }
 
+  async verifyTelegramToken(botId: string, token?: string): Promise<{
+    valid: boolean;
+    source?: string;
+    tokenPreview?: string;
+    botInfo?: { id: number; username: string; firstName: string; canJoinGroups?: boolean };
+    errorCode?: number;
+    description?: string;
+    message: string;
+  }> {
+    return this.request<{
+      valid: boolean;
+      source?: string;
+      tokenPreview?: string;
+      botInfo?: { id: number; username: string; firstName: string; canJoinGroups?: boolean };
+      errorCode?: number;
+      description?: string;
+      message: string;
+    }>(`/api/bots/${botId}/verify-telegram-token`, {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  }
+
   async switchActiveBot(targetBotId: string, fromBotId?: string): Promise<{ targetBot: TelegramBot; stoppedBot?: TelegramBot; message: string }> {
     return this.request<{ targetBot: TelegramBot; stoppedBot?: TelegramBot; message: string }>(`/api/bots/${targetBotId}/switch-active`, {
       method: 'POST',
@@ -692,6 +715,21 @@ class ApiService {
     await this.request(`/api/admin/users/${userId}/role`, {
       method: 'POST',
       body: JSON.stringify({ role }),
+    });
+  }
+
+  async adminAssignPlan(userId: string, planData: {
+    planName: string;
+    activeBotCount?: number;
+    totalBotSlots?: number;
+    dbStorageMB?: number;
+    durationDays?: number;
+    maxFileSizeMB?: number;
+    status?: string;
+  }): Promise<{ message: string; subscription: any }> {
+    return this.request<{ message: string; subscription: any }>(`/api/admin/users/${userId}/plan`, {
+      method: 'POST',
+      body: JSON.stringify(planData),
     });
   }
 

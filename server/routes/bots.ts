@@ -511,3 +511,80 @@ botsRouter.post('/:id/packages/install-requirements', async (req: Request, res: 
   }
 });
 
+// 11. VERIFY TELEGRAM BOT TOKEN IN REAL-TIME AGAINST TELEGRAM API
+botsRouter.post('/:id/verify-telegram-token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bot = db.getBotById(req.params.id, req.user!.id);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+
+    let tokenToTest = req.body?.token?.trim();
+    let tokenSource = 'custom input';
+
+    if (!tokenToTest) {
+      // Check environment variables first
+      const envs = db.getBotEnvVars(bot.id, req.user!.id);
+      const tokenEnv = envs.find((e) => (e.key === 'BOT_TOKEN' || e.key === 'TELEGRAM_TOKEN') && e.value && e.value.trim().length > 10);
+      if (tokenEnv) {
+        tokenToTest = tokenEnv.value.trim();
+        tokenSource = `Environment Variable (${tokenEnv.key})`;
+      } else {
+        // Check main.py content
+        const files = db.getBotFilesDirect(bot.id);
+        const mainFile = files.find((f) => f.file_path === 'main.py' || f.file_path === 'bot.py');
+        if (mainFile && mainFile.content) {
+          const match = mainFile.content.match(/(?:BOT_TOKEN|TOKEN|token)\s*=\s*["']([0-9]{8,12}:[a-zA-Z0-9_-]{30,45})["']/);
+          if (match && match[1]) {
+            tokenToTest = match[1];
+            tokenSource = `Hardcoded in ${mainFile.file_path}`;
+          }
+        }
+      }
+    }
+
+    if (!tokenToTest || tokenToTest === 'YOUR_BOT_TOKEN' || tokenToTest === 'YOUR_BOT_TOKEN_HERE') {
+      res.json({
+        valid: false,
+        source: 'none',
+        message: 'No Telegram bot token found. Please set a token in your Python code or in Environment Variables.',
+      });
+      return;
+    }
+
+    // Call official Telegram API getMe
+    const tgResponse = await fetch(`https://api.telegram.org/bot${tokenToTest}/getMe`);
+    const tgData: any = await tgResponse.json();
+
+    if (tgData.ok && tgData.result) {
+      res.json({
+        valid: true,
+        source: tokenSource,
+        tokenPreview: `${tokenToTest.slice(0, 10)}...${tokenToTest.slice(-4)}`,
+        botInfo: {
+          id: tgData.result.id,
+          username: tgData.result.username ? `@${tgData.result.username}` : 'No username',
+          firstName: tgData.result.first_name,
+          canJoinGroups: tgData.result.can_join_groups,
+        },
+        message: `Token is valid! Successfully connected to @${tgData.result.username || tgData.result.first_name}.`,
+      });
+    } else {
+      res.json({
+        valid: false,
+        source: tokenSource,
+        tokenPreview: `${tokenToTest.slice(0, 10)}...${tokenToTest.slice(-4)}`,
+        errorCode: tgData.error_code || 401,
+        description: tgData.description || 'Unauthorized',
+        message: `Telegram API rejected this token (${tgData.description || 'Unauthorized'}). The token is invalid, expired, or was revoked on @BotFather.`,
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({
+      valid: false,
+      message: `Failed to connect to Telegram servers: ${error.message || 'Network error'}`,
+    });
+  }
+});
+

@@ -27,7 +27,8 @@ import {
   Wrench,
   TerminalSquare,
   Save,
-  Info
+  Info,
+  ShieldCheck
 } from 'lucide-react';
 
 interface SingleBotWorkspacePageProps {
@@ -73,6 +74,19 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   // Groq AI Diagnosis states
   const [isDiagnosingWithGroq, setIsDiagnosingWithGroq] = useState(false);
   const [groqDiagnosis, setGroqDiagnosis] = useState<any | null>(null);
+
+  // Telegram Token Verification states
+  const [isVerifyingToken, setIsVerifyingToken] = useState(false);
+  const [testTokenInput, setTestTokenInput] = useState('');
+  const [tokenVerificationResult, setTokenVerificationResult] = useState<{
+    valid: boolean;
+    source?: string;
+    tokenPreview?: string;
+    botInfo?: { id: number; username: string; firstName: string; canJoinGroups?: boolean };
+    errorCode?: number;
+    description?: string;
+    message: string;
+  } | null>(null);
 
   // VPS Start Verification states
   const [isStartingBot, setIsStartingBot] = useState(false);
@@ -147,7 +161,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     if (bot && tab === 'storage') {
       fetchBotFilesAndStorage(); // Re-use this endpoint for storage summary
     }
-  }, [bot, tab]);
+  }, [bot?.id, tab]);
 
   if (loading) {
     return <div className="p-12 text-center text-slate-500">Loading workspace...</div>;
@@ -440,6 +454,29 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     }
   };
 
+  const handleVerifyTelegramToken = async (customToken?: string) => {
+    if (!bot) return;
+    setIsVerifyingToken(true);
+    setTokenVerificationResult(null);
+    try {
+      const res = await api.verifyTelegramToken(bot.id, customToken || testTokenInput);
+      setTokenVerificationResult(res);
+      if (res.valid) {
+        addToast('success', `Token verified! Connected to ${res.botInfo?.username || res.botInfo?.firstName}`);
+      } else {
+        addToast('error', res.message || 'Telegram token is invalid');
+      }
+    } catch (e: any) {
+      setTokenVerificationResult({
+        valid: false,
+        message: e.message || 'Failed to connect to Telegram verification service',
+      });
+      addToast('error', e.message || 'Token verification failed');
+    } finally {
+      setIsVerifyingToken(false);
+    }
+  };
+
   const uploadFile = async (file: File) => {
     setUploading(true);
     try {
@@ -456,9 +493,13 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
         content = await file.text();
       } else {
         const buffer = await file.arrayBuffer();
-        content = btoa(
-          new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-        );
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunkSize)));
+        }
+        content = btoa(binary);
         encoding = 'base64';
       }
 
@@ -895,6 +936,132 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
               </button>
             </div>
           </form>
+        </div>
+
+        {/* Real-Time Telegram Token & API Connectivity Tester Card */}
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  Telegram Token & API Connectivity Tester
+                </h3>
+                <span className="px-2 py-0.5 bg-sky-100 text-[#0088cc] border border-sky-200 text-[10px] font-bold rounded-full flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-[#0088cc]" /> Live API
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Check whether your Telegram Bot Token is valid, active, and authorized on Telegram's official servers before running your bot.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleVerifyTelegramToken()}
+              disabled={isVerifyingToken}
+              className="px-4 py-2.5 bg-[#0088cc] hover:bg-[#0077b5] text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              {isVerifyingToken ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Checking Telegram API...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Test Current Bot Token</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2">
+              <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                Test a Different Token (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="Paste token here to test before saving (e.g. 123456789:ABCdef...)"
+                value={testTokenInput}
+                onChange={(e) => setTestTokenInput(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#0088cc]/30 text-slate-900"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => handleVerifyTelegramToken(testTokenInput)}
+                disabled={isVerifyingToken || !testTokenInput.trim()}
+                className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all disabled:opacity-40 cursor-pointer flex items-center justify-center gap-2"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Verify Custom Token</span>
+              </button>
+            </div>
+          </div>
+
+          {tokenVerificationResult && (
+            <div
+              className={`p-4 rounded-xl border text-xs leading-relaxed ${
+                tokenVerificationResult.valid
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                  : 'bg-rose-50 border-rose-200 text-rose-950'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                {tokenVerificationResult.valid ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <div className="space-y-1.5 flex-1">
+                  <div className="font-bold flex items-center justify-between">
+                    <span>
+                      {tokenVerificationResult.valid
+                        ? 'Token is Valid & Active'
+                        : `Telegram API Error: ${tokenVerificationResult.description || 'Unauthorized (401)'}`}
+                    </span>
+                    {tokenVerificationResult.source && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 bg-white/70 rounded-md border border-slate-200 text-slate-700">
+                        Source: {tokenVerificationResult.source}
+                      </span>
+                    )}
+                  </div>
+                  <p>{tokenVerificationResult.message}</p>
+
+                  {tokenVerificationResult.valid && tokenVerificationResult.botInfo && (
+                    <div className="mt-2 pt-2 border-t border-emerald-200/80 grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono text-[11px]">
+                      <div>
+                        <span className="text-emerald-700 font-sans block text-[10px]">Username:</span>
+                        <strong className="text-emerald-900">{tokenVerificationResult.botInfo.username}</strong>
+                      </div>
+                      <div>
+                        <span className="text-emerald-700 font-sans block text-[10px]">Bot Name:</span>
+                        <strong className="text-emerald-900">{tokenVerificationResult.botInfo.firstName}</strong>
+                      </div>
+                      <div>
+                        <span className="text-emerald-700 font-sans block text-[10px]">Bot ID:</span>
+                        <strong className="text-emerald-900">{tokenVerificationResult.botInfo.id}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {!tokenVerificationResult.valid && (
+                    <div className="mt-2 pt-2 border-t border-rose-200/80 bg-white/60 p-3 rounded-lg text-rose-900">
+                      <strong className="font-sans block text-xs mb-1 text-rose-950">How to fix this:</strong>
+                      <ol className="list-decimal pl-4 space-y-1 text-[11px]">
+                        <li>Open Telegram and search for <strong>@BotFather</strong>.</li>
+                        <li>Send the message <code>/mybots</code> or <code>/token</code>.</li>
+                        <li>Select your bot and copy the fresh API Token.</li>
+                        <li>Paste the new token into your Python file (e.g. <code>main.py</code>) or save it in the Environment Variables card above.</li>
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Groq AI Package & Dependency Manager Card */}

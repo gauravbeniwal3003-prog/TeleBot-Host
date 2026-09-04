@@ -121,12 +121,12 @@
       "id": "sub_843937",
       "user_id": "usr_73237977",
       "project_id": "proj_73651666",
-      "plan_id": "dynamic_custom",
-      "plan_name": "Custom VPS (1 Bots)",
+      "plan_id": "starter",
+      "plan_name": "Starter Bot Plan (₹49/mo)",
       "status": "active",
-      "trial_started": false,
-      "trial_started_at": null,
-      "start_date": "2026-08-31T01:47:52.533Z",
+      "trial_started": true,
+      "trial_started_at": "2026-08-31T01:47:52.533Z",
+      "start_date": "2026-09-02T04:26:00.000Z",
       "expiry_date": "2026-10-02T04:31:13.734Z",
       "auto_renew": true,
       "total_bot_slots": 3,
@@ -136,7 +136,7 @@
       "db_storage_mb": 200,
       "max_file_size_mb": 5,
       "created_at": "2026-08-30T08:42:49.83+00:00",
-      "updated_at": "2026-09-02T04:31:13.734+00:00"
+      "updated_at": "2026-09-02T04:26:00+00:00"
     },
     {
       "id": "sub_107579",
@@ -237,22 +237,26 @@
       "username": "@tracexfreee_bot",
       "framework": "telebot",
       "version": "telebot v24.2 (cgroups v2)",
-      "status": "running",
+      "status": "stopped",
       "is_active_slot": true,
       "entry_point": "main.py",
       "has_database": false,
       "webhook_enabled": false,
-      "cpu_usage": 0,
+      "cpu_usage": 4.7,
       "memory_usage_mb": 0,
       "memory_limit_mb": 512,
       "storage_usage_mb": 15,
-      "uptime_seconds": 0,
+      "uptime_seconds": 1,
       "restart_count": 0,
       "last_deployed_at": "2026-08-31T01:41:41.270Z",
-      "last_started_at": "2026-08-31T01:47:52.533Z",
+      "last_started_at": "2026-09-04T16:01:06.435Z",
       "created_at": "2026-08-31T01:41:41.27+00:00",
-      "updated_at": "2026-09-04T15:19:17.402+00:00",
-      "last_stopped_at": "2026-08-31T01:49:18.564Z"
+      "updated_at": "2026-09-04T16:01:06.435+00:00",
+      "last_stopped_at": "2026-09-04T16:01:00.782Z",
+      "start_command": "python3 -u main.py",
+      "last_error": "[Terminal] [PROCESS CRASH] Bot exited with error code 1. Please inspect the error traceback above.",
+      "last_error_friendly": "",
+      "last_error_technical": "{\"rawError\":\"[Terminal] [PROCESS CRASH] Bot exited with error code 1. Please inspect the error traceback above.\"}"
     }
   ],
   "env_vars": [
@@ -279,9 +283,9 @@
       "file_size_bytes": 2882,
       "mime_type": "text/plain",
       "is_directory": false,
-      "content": "import logging\r\nfrom telegram import Update\r\nfrom telegram.ext import Application, MessageHandler, filters, ContextTypes\r\n\r\n# Enable logging\r\nlogging.basicConfig(\r\n    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',\r\n    level=logging.INFO\r\n)\r\nlogger = logging.getLogger(__name__)\r\n\r\n# ========== HARD CODE YOUR BOT TOKEN HERE ==========\r\nBOT_TOKEN = \"8437341863:AAGomHlGAfHvNR9w0I9AK82rfL-IVDGWkaI\"  # Replace with your actual bot token\r\n# ===================================================\r\n\r\nasync def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Handle every incoming message and reply with 'yes Bosss...'\"\"\"\r\n    try:\r\n        # Get the user's message\r\n        user_message = update.message.text if update.message.text else \"non-text message\"\r\n        user_name = update.message.from_user.first_name\r\n        \r\n        # Log the incoming message\r\n        logger.info(f\"Message from {user_name}: {user_message}\")\r\n        \r\n        # Reply with \"yes Bosss...\"\r\n        await update.message.reply_text(\"yes Bosss...\")\r\n        \r\n    except Exception as e:\r\n        logger.error(f\"Error handling message: {e}\")\r\n        # Try to send error message to user\r\n        try:\r\n            await update.message.reply_text(\"Sorry, something went wrong! 😅\")\r\n        except:\r\n            pass\r\n\r\nasync def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Send a welcome message when /start command is issued\"\"\"\r\n    welcome_text = (\r\n        \"🤖 *Bot Activated!*\\n\\n\"\r\n        \"I will reply with *'yes Bosss...'* to every message you send!\\n\"\r\n        \"Try sending me anything 😎\"\r\n    )\r\n    await update.message.reply_text(welcome_text, parse_mode='Markdown')\r\n\r\nasync def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Log errors caused by updates\"\"\"\r\n    logger.error(f\"Update {update} caused error {context.error}\")\r\n\r\ndef main():\r\n    \"\"\"Start the bot\"\"\"\r\n    # Create the Application\r\n    app = Application.builder().token(BOT_TOKEN).build()\r\n    \r\n    # Register handlers\r\n    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))\r\n    app.add_handler(MessageHandler(filters.COMMAND, handle_message))  # Also reply to commands\r\n    app.add_handler(MessageHandler(filters.ALL & ~filters.TEXT, handle_message))  # Handle non-text messages\r\n    \r\n    # Add command handler for /start\r\n    from telegram.ext import CommandHandler\r\n    app.add_handler(CommandHandler(\"start\", start))\r\n    \r\n    # Register error handler\r\n    app.add_error_handler(error_handler)\r\n    \r\n    # Start the bot\r\n    print(\"🤖 Bot is running... Press Ctrl+C to stop\")\r\n    print(f\"Bot token: {BOT_TOKEN[:10]}... (hidden for security)\")\r\n    \r\n    # Run the bot until you press Ctrl+C\r\n    app.run_polling(allowed_updates=Update.ALL_TYPES)\r\n\r\nif __name__ == '__main__':\r\n    main()",
+      "content": "import logging\r\nfrom telegram import Update\r\nfrom telegram.ext import Application, MessageHandler, filters, ContextTypes\r\n\r\n# Enable logging\r\nlogging.basicConfig(\r\n    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',\r\n    level=logging.INFO\r\n)\r\nlogger = logging.getLogger(__name__)\r\n\r\n# ========== HARD CODE YOUR BOT TOKEN HERE ==========\r\nBOT_TOKEN = \"8437341863:AAFjCMANRvx3kTasMOE1Kgw4q1-oG97_LM0\"  # Replace with your actual bot token\r\n# ===================================================\r\n\r\nasync def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Handle every incoming message and reply with 'yes Bosss...'\"\"\"\r\n    try:\r\n        # Get the user's message\r\n        user_message = update.message.text if update.message.text else \"non-text message\"\r\n        user_name = update.message.from_user.first_name\r\n        \r\n        # Log the incoming message\r\n        logger.info(f\"Message from {user_name}: {user_message}\")\r\n        \r\n        # Reply with \"yes Bosss...\"\r\n        await update.message.reply_text(\"yes Bosss...\")\r\n        \r\n    except Exception as e:\r\n        logger.error(f\"Error handling message: {e}\")\r\n        # Try to send error message to user\r\n        try:\r\n            await update.message.reply_text(\"Sorry, something went wrong! 😅\")\r\n        except:\r\n            pass\r\n\r\nasync def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Send a welcome message when /start command is issued\"\"\"\r\n    welcome_text = (\r\n        \"🤖 *Bot Activated!*\\n\\n\"\r\n        \"I will reply with *'yes Bosss...'* to every message you send!\\n\"\r\n        \"Try sending me anything 😎\"\r\n    )\r\n    await update.message.reply_text(welcome_text, parse_mode='Markdown')\r\n\r\nasync def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Log errors caused by updates\"\"\"\r\n    logger.error(f\"Update {update} caused error {context.error}\")\r\n\r\ndef main():\r\n    \"\"\"Start the bot\"\"\"\r\n    # Create the Application\r\n    app = Application.builder().token(BOT_TOKEN).build()\r\n    \r\n    # Register handlers\r\n    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))\r\n    app.add_handler(MessageHandler(filters.COMMAND, handle_message))  # Also reply to commands\r\n    app.add_handler(MessageHandler(filters.ALL & ~filters.TEXT, handle_message))  # Handle non-text messages\r\n    \r\n    # Add command handler for /start\r\n    from telegram.ext import CommandHandler\r\n    app.add_handler(CommandHandler(\"start\", start))\r\n    \r\n    # Register error handler\r\n    app.add_error_handler(error_handler)\r\n    \r\n    # Start the bot\r\n    print(\"🤖 Bot is running... Press Ctrl+C to stop\")\r\n    print(f\"Bot token: {BOT_TOKEN[:10]}... (hidden for security)\")\r\n    \r\n    # Run the bot until you press Ctrl+C\r\n    app.run_polling(allowed_updates=Update.ALL_TYPES)\r\n\r\nif __name__ == '__main__':\r\n    main()",
       "created_at": "2026-09-02T03:43:05.805Z",
-      "updated_at": "2026-09-02T03:43:35.673Z"
+      "updated_at": "2026-09-04T15:59:25.788Z"
     },
     {
       "id": "file_1788321606525",
@@ -296,297 +300,23 @@
       "content": "import logging\r\nfrom telegram import Update\r\nfrom telegram.ext import Application, MessageHandler, filters, ContextTypes\r\n\r\n# Enable logging\r\nlogging.basicConfig(\r\n    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',\r\n    level=logging.INFO\r\n)\r\nlogger = logging.getLogger(__name__)\r\n\r\n# ========== HARD CODE YOUR BOT TOKEN HERE ==========\r\nBOT_TOKEN = \"8437341863:AAGomHlGAfHvNR9w0I9AK82rfL-IVDGWkaI\"  # Replace with your actual bot token\r\n# ===================================================\r\n\r\nasync def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Handle every incoming message and reply with 'yes Bosss...'\"\"\"\r\n    try:\r\n        # Get the user's message\r\n        user_message = update.message.text if update.message.text else \"non-text message\"\r\n        user_name = update.message.from_user.first_name\r\n        \r\n        # Log the incoming message\r\n        logger.info(f\"Message from {user_name}: {user_message}\")\r\n        \r\n        # Reply with \"yes Bosss...\"\r\n        await update.message.reply_text(\"yes Bosss...\")\r\n        \r\n    except Exception as e:\r\n        logger.error(f\"Error handling message: {e}\")\r\n        # Try to send error message to user\r\n        try:\r\n            await update.message.reply_text(\"Sorry, something went wrong! 😅\")\r\n        except:\r\n            pass\r\n\r\nasync def start(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Send a welcome message when /start command is issued\"\"\"\r\n    welcome_text = (\r\n        \"🤖 *Bot Activated!*\\n\\n\"\r\n        \"I will reply with *'yes Bosss...'* to every message you send!\\n\"\r\n        \"Try sending me anything 😎\"\r\n    )\r\n    await update.message.reply_text(welcome_text, parse_mode='Markdown')\r\n\r\nasync def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):\r\n    \"\"\"Log errors caused by updates\"\"\"\r\n    logger.error(f\"Update {update} caused error {context.error}\")\r\n\r\ndef main():\r\n    \"\"\"Start the bot\"\"\"\r\n    # Create the Application\r\n    app = Application.builder().token(BOT_TOKEN).build()\r\n    \r\n    # Register handlers\r\n    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))\r\n    app.add_handler(MessageHandler(filters.COMMAND, handle_message))  # Also reply to commands\r\n    app.add_handler(MessageHandler(filters.ALL & ~filters.TEXT, handle_message))  # Handle non-text messages\r\n    \r\n    # Add command handler for /start\r\n    from telegram.ext import CommandHandler\r\n    app.add_handler(CommandHandler(\"start\", start))\r\n    \r\n    # Register error handler\r\n    app.add_error_handler(error_handler)\r\n    \r\n    # Start the bot\r\n    print(\"🤖 Bot is running... Press Ctrl+C to stop\")\r\n    print(f\"Bot token: {BOT_TOKEN[:10]}... (hidden for security)\")\r\n    \r\n    # Run the bot until you press Ctrl+C\r\n    app.run_polling(allowed_updates=Update.ALL_TYPES)\r\n\r\nif __name__ == '__main__':\r\n    main()",
       "created_at": "2026-09-02T04:00:06.522Z",
       "updated_at": "2026-09-02T04:00:06.522Z"
+    },
+    {
+      "id": "file_1788537981232",
+      "project_id": "proj_73651666",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "file_name": "requirements.txt",
+      "file_path": "requirements.txt",
+      "file_size_bytes": 35,
+      "content": "python-telegram-bot>=21.0\nrequests\n",
+      "is_binary": false,
+      "encoding": "utf-8",
+      "created_at": "2026-09-04T16:06:21.232Z",
+      "updated_at": "2026-09-04T16:06:21.233Z"
     }
   ],
   "logs": [
-    {
-      "id": "log_1788140501270_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Initializing isolated Linux container sandbox for bot \"TracexFreee\" (cgroups v2, memory limit: 512MB, read-only rootfs).",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Parsing entry point script \"main.py\" (Framework: telebot)...",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Static security inspection: 0 vulnerabilities found, AST verification PASSED.",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_4",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Environment variables loaded (BOT_TOKEN, ENVIRONMENT=production).",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_5",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY SUCCESS] Bot container created & deployed successfully. Ready for execution.",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_6",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Launching container process: python3 main.py (PID: 41995)...",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_7",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT STDOUT] [TeleBot Host Engine] Bot process online. Connected to Telegram Gateway.",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140501270_8",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT STDOUT] [INFO] TracexFreee is listening for incoming updates 24/7.",
-      "timestamp": "2026-08-31T01:41:41.270Z"
-    },
-    {
-      "id": "log_1788140599617_stop_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] STOP command received from user dashboard at 1:43:19 AM UTC.",
-      "timestamp": "2026-08-31T01:43:19.617Z"
-    },
-    {
-      "id": "log_1788140599637_stop_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT PROCESS] Sending SIGTERM signal to process (PID: 57457)...",
-      "timestamp": "2026-08-31T01:43:19.617Z"
-    },
-    {
-      "id": "log_1788140599637_stop_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT STDOUT] [INFO] Bot process graceful shutdown initiated.",
-      "timestamp": "2026-08-31T01:43:19.617Z"
-    },
-    {
-      "id": "log_1788140599637_stop_4",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT PROCESS] Process exited cleanly with code 0.",
-      "timestamp": "2026-08-31T01:43:19.617Z"
-    },
-    {
-      "id": "log_1788140599637_stop_5",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Container stopped at 1:43:19 AM UTC. CPU/RAM allocations freed. Status: STOPPED.",
-      "timestamp": "2026-08-31T01:43:19.617Z"
-    },
-    {
-      "id": "log_1788140654354_file_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Source file 'freebot.py' updated (8034 bytes).",
-      "timestamp": "2026-08-31T01:44:14.350Z"
-    },
-    {
-      "id": "log_1788140654354_file_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Static security inspection for 'freebot.py': 0 errors.",
-      "timestamp": "2026-08-31T01:44:14.350Z"
-    },
-    {
-      "id": "log_1788140654354_file_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Virtual sandbox file 'freebot.py' reloaded at 1:44:14 AM UTC.",
-      "timestamp": "2026-08-31T01:44:14.350Z"
-    },
-    {
-      "id": "log_1788140708696_file_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Source file 'image-1788095934251.jpg' updated (623286 bytes).",
-      "timestamp": "2026-08-31T01:45:08.694Z"
-    },
-    {
-      "id": "log_1788140708696_file_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Static security inspection for 'image-1788095934251.jpg': 0 errors.",
-      "timestamp": "2026-08-31T01:45:08.694Z"
-    },
-    {
-      "id": "log_1788140708696_file_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Virtual sandbox file 'image-1788095934251.jpg' reloaded at 1:45:08 AM UTC.",
-      "timestamp": "2026-08-31T01:45:08.694Z"
-    },
-    {
-      "id": "log_1788140872557_start_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] START command received from user dashboard at 1:47:52 AM UTC.",
-      "timestamp": "2026-08-31T01:47:52.533Z"
-    },
-    {
-      "id": "log_1788140872557_start_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Allocating container sandbox resources (CPU quota: 50%, RAM limit: 512MB).",
-      "timestamp": "2026-08-31T01:47:52.533Z"
-    },
-    {
-      "id": "log_1788140872557_start_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT PROCESS] Spawning python process: python3 main.py (PID: 59213)",
-      "timestamp": "2026-08-31T01:47:52.533Z"
-    },
-    {
-      "id": "log_1788140872557_start_4",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT STDOUT] [TeleBot Host Engine] TracexFreee started successfully. Connected to Telegram Gateway.",
-      "timestamp": "2026-08-31T01:47:52.533Z"
-    },
-    {
-      "id": "log_1788140872557_start_5",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT STDOUT] [INFO] Listening for incoming updates (Long Polling & Webhook router active).",
-      "timestamp": "2026-08-31T01:47:52.533Z"
-    },
-    {
-      "id": "log_1788140958564_stop_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] STOP command received from user dashboard at 1:49:18 AM UTC.",
-      "timestamp": "2026-08-31T01:49:18.564Z"
-    },
-    {
-      "id": "log_1788140958564_stop_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT PROCESS] Sending SIGTERM signal to process (PID: 50824)...",
-      "timestamp": "2026-08-31T01:49:18.564Z"
-    },
-    {
-      "id": "log_1788140958564_stop_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT STDOUT] [INFO] Bot process graceful shutdown initiated.",
-      "timestamp": "2026-08-31T01:49:18.564Z"
-    },
-    {
-      "id": "log_1788140958564_stop_4",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[BOT PROCESS] Process exited cleanly with code 0.",
-      "timestamp": "2026-08-31T01:49:18.564Z"
-    },
-    {
-      "id": "log_1788140958564_stop_5",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Container stopped at 1:49:18 AM UTC. CPU/RAM allocations freed. Status: STOPPED.",
-      "timestamp": "2026-08-31T01:49:18.564Z"
-    },
-    {
-      "id": "log_1788320585808_file_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Source file 'bot.py' updated (2882 bytes).",
-      "timestamp": "2026-09-02T03:43:05.805Z"
-    },
-    {
-      "id": "log_1788320585808_file_2",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[DEPLOY] Static security inspection for 'bot.py': 0 errors.",
-      "timestamp": "2026-09-02T03:43:05.805Z"
-    },
-    {
-      "id": "log_1788320585808_file_3",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "level": "info",
-      "message": "[VPS SYSTEM] Virtual sandbox file 'bot.py' reloaded at 3:43:05 AM UTC.",
-      "timestamp": "2026-09-02T03:43:05.805Z"
-    },
     {
       "id": "log_1788321652763_220",
       "bot_id": "bot_85601",
@@ -694,9 +424,148 @@
       "message": "[Terminal] [INFO] Process exited with code 1",
       "timestamp": "2026-09-02T04:00:53.492Z",
       "project_id": "proj_25619917"
+    },
+    {
+      "id": "log_1788537666439_306",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO] Initializing isolated sandboxed workspace for user: Gaurav_beniwal",
+      "timestamp": "2026-09-04T16:01:06.439Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666440_929",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO] Workspace Path: /app/applet/vps_workspaces/Gaurav_beniwal/TracexFreee",
+      "timestamp": "2026-09-04T16:01:06.440Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666442_483",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO] Resource allocation: RAM Limit: 512MB, Storage Limit: 3072MB",
+      "timestamp": "2026-09-04T16:01:06.442Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666443_56",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO] Starting file sync to dedicated user folder...",
+      "timestamp": "2026-09-04T16:01:06.443Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666444_958",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO] Command Executed: python3 -u main.py",
+      "timestamp": "2026-09-04T16:01:06.444Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666446_339",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO] Loaded environment variables:",
+      "timestamp": "2026-09-04T16:01:06.446Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666448_349",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [INFO]   • ENVIRONMENT = production",
+      "timestamp": "2026-09-04T16:01:06.448Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666449_746",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "system",
+      "message": "[Terminal] [SUCCESS] Pre-flight checks passed. Booting bot engine...",
+      "timestamp": "2026-09-04T16:01:06.449Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666927_639",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "error",
+      "message": "Traceback (most recent call last):",
+      "timestamp": "2026-09-04T16:01:06.927Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666929_686",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "error",
+      "message": "  File \"/app/applet/vps_workspaces/Gaurav_beniwal/TracexFreee/main.py\", line 2, in <module>",
+      "timestamp": "2026-09-04T16:01:06.929Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666931_188",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "error",
+      "message": "    from telegram import Update",
+      "timestamp": "2026-09-04T16:01:06.931Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537666933_139",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "error",
+      "message": "ModuleNotFoundError: No module named 'telegram'",
+      "timestamp": "2026-09-04T16:01:06.933Z",
+      "project_id": "proj_73651666"
+    },
+    {
+      "id": "log_1788537667187_129",
+      "bot_id": "bot_11193",
+      "user_id": "usr_73237977",
+      "level": "error",
+      "message": "[Terminal] [PROCESS CRASH] Bot exited with error code 1. Please inspect the error traceback above.",
+      "timestamp": "2026-09-04T16:01:07.187Z",
+      "project_id": "proj_73651666"
     }
   ],
   "activity_logs": [
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.start",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "bot_name": "TracexFreee"
+      },
+      "id": "act_1788537666463_766",
+      "created_at": "2026-09-04T16:01:06.463Z"
+    },
+    {
+      "user_id": "usr_73237977",
+      "action": "bot.stop",
+      "target_type": "bot",
+      "target_id": "bot_11193",
+      "details": {
+        "bot_name": "TracexFreee"
+      },
+      "id": "act_1788537660805_886",
+      "created_at": "2026-09-04T16:01:00.805Z"
+    },
     {
       "user_id": "usr_73237977",
       "action": "user.login",

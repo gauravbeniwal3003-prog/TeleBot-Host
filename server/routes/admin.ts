@@ -107,6 +107,61 @@ adminRouter.post('/users/:userId/role', (req: Request, res: Response): void => {
   }
 });
 
+adminRouter.post('/users/:userId/plan', (req: Request, res: Response): void => {
+  try {
+    const adminUser = (req as any).user;
+    const targetUserId = req.params.userId;
+    const {
+      planName,
+      activeBotCount = 2,
+      totalBotSlots = 6,
+      dbStorageMB = 500,
+      durationDays = 30,
+      maxFileSizeMB = 10,
+      status = 'active',
+    } = req.body;
+
+    const targetUser = db.getUserById(targetUserId);
+    if (!targetUser) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const sub = db.updateUserSubscription(targetUserId, {
+      planId: `custom_${Date.now()}`,
+      planName: planName || 'Admin Custom Plan Add-On',
+      activeBotCount: Number(activeBotCount) || 2,
+      totalBotSlots: Number(totalBotSlots) || 6,
+      dbStorageMB: Number(dbStorageMB) || 500,
+      ramLimitMB: 100, // Fixed 100MB internal max allowance
+      storageLimitGB: Math.max(1, Math.ceil((Number(dbStorageMB) || 500) / 1024)),
+      durationDays: Number(durationDays) || 30,
+      maxFileSizeMB: Number(maxFileSizeMB) || 10,
+      preserveRemainingDays: true,
+    });
+
+    if (status) {
+      sub.status = status;
+      db.save();
+    }
+
+    db.addAuditLog(
+      adminUser.id,
+      adminUser.email,
+      'plan.custom_grant',
+      targetUserId,
+      `Admin assigned custom plan "${sub.plan_name}" (${sub.active_bot_count} active bots, ${sub.db_storage_mb}MB storage, ${durationDays} days) to user ${targetUser.email}`
+    );
+
+    res.json({
+      message: `Successfully granted custom plan to ${targetUser.name} (${targetUser.email}).`,
+      subscription: sub,
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Failed to update user plan' });
+  }
+});
+
 // ==========================================
 // 3. BOT MANAGEMENT
 // ==========================================

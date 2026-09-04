@@ -400,11 +400,57 @@ export class BotRunnerWorker extends EventEmitter {
       db.clearBotLogs(botId, userId);
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Initializing isolated sandboxed workspace for user: ${safeUserName}`);
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Workspace Path: ${botDir}`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Resource allocation: RAM Limit: ${sandbox.memoryLimitMB}MB, Storage Limit: ${sandbox.storageQuotaMB || 2048}MB`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync to dedicated user folder...`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: ${commandToRun}`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Process Isolation: Dedicated Linux Container (telebot-runner)`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Storage Allocation: ${userSub?.db_storage_mb || 250} MB`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync to dedicated user workspace...`);
 
-      const envDict: Record<string, string> = { ...process.env, PYTHONUNBUFFERED: '1' };
+      // Check and install requirements.txt if present before running start command
+      const reqPath = path.join(botDir, 'requirements.txt');
+      if (fs.existsSync(reqPath)) {
+        const reqContent = fs.readFileSync(reqPath, 'utf-8').trim();
+        if (reqContent.length > 0) {
+          LogManager.appendLog(botId, userId, 'system', `[Terminal] [PIP] Setting up dependencies from requirements.txt...`);
+          try {
+            const { spawnSync } = require('child_process');
+            const pipRes = spawnSync(pythonBin, ['-m', 'pip', 'install', '--break-system-packages', '-r', 'requirements.txt'], {
+              cwd: botDir,
+              env: {
+                PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                PYTHONUNBUFFERED: '1',
+                HOME: botDir,
+                TMPDIR: botDir,
+              },
+              timeout: 45000,
+              encoding: 'utf-8',
+            });
+            if (pipRes.stdout) {
+              const lines = pipRes.stdout.split('\n').filter((l: string) => l.trim().length > 0);
+              lines.forEach((l: string) => LogManager.appendLog(botId, userId, 'info', `[PIP] ${l}`));
+            }
+            if (pipRes.status === 0) {
+              LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] All requirements from requirements.txt are installed and ready.`);
+            } else if (pipRes.stderr) {
+              LogManager.appendLog(botId, userId, 'warn', `[Terminal] [PIP Notice] ${pipRes.stderr}`);
+            }
+          } catch (pipErr: any) {
+            LogManager.appendLog(botId, userId, 'warn', `[Terminal] [PIP Notice] Dependencies pre-flight: ${pipErr.message}`);
+          }
+        }
+      }
+
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Executing Start Command: ${commandToRun}`);
+
+      // Strict sandbox environment dictionary — NEVER leak host system secrets, database credentials, or admin keys
+      const envDict: Record<string, string> = {
+        PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        PYTHONUNBUFFERED: '1',
+        PYTHONPATH: botDir,
+        HOME: botDir,
+        TMPDIR: botDir,
+        LANG: process.env.LANG || 'C.UTF-8',
+        LC_ALL: process.env.LC_ALL || 'C.UTF-8',
+      };
+
       const validEnvVars = (envVars || []).filter((ev) => {
         const val = ev.value ? ev.value.trim() : '';
         return val.length > 0 && val !== 'YOUR_BOT_TOKEN' && val !== 'YOUR_BOT_TOKEN_HERE';

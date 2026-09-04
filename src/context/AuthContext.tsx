@@ -200,31 +200,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }}
     >
       {children}
-      {/* Global Toast Overlay */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
-        {toasts.map((toast) => (
-          <div
-            key={toast.id}
-            className={`pointer-events-auto p-4 rounded-xl border shadow-lg text-sm font-medium transition-all transform animate-in slide-in-from-bottom-2 ${
-              toast.type === 'success'
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                : toast.type === 'error'
-                ? 'bg-rose-50 border-rose-200 text-rose-900'
-                : 'bg-sky-50 border-sky-200 text-sky-900'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span>{toast.message}</span>
-              <button
-                onClick={() => removeToast(toast.id)}
-                className="ml-3 text-slate-400 hover:text-slate-700 text-base leading-none font-bold"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
     </AuthContext.Provider>
   );
 };

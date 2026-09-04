@@ -26,6 +26,7 @@ interface DashboardOverviewPageProps {
 
 export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ navigate }) => {
   const { user, bots, refreshBots, refreshUserData, activeProjectId, addToast } = useAuth();
+  const [actionLoadingBotId, setActionLoadingBotId] = useState<string | null>(null);
   
   // Deploy Wizard page state (replaces modal with full screen state)
   const [showDeployWizard, setShowDeployWizard] = useState(false);
@@ -37,6 +38,22 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
   const [botToken, setBotToken] = useState('');
   const [botFramework, setBotFramework] = useState<BotFramework>('telebot');
   const [deployingLoader, setDeployingLoader] = useState(false);
+
+  const handleQuickToggleBot = async (e: React.MouseEvent, bot: TelegramBot) => {
+    e.stopPropagation();
+    const isRunning = bot.status === 'running';
+    const action = isRunning ? 'stop' : 'start';
+    setActionLoadingBotId(bot.id);
+    try {
+      await api.updateBotStatus(bot.id, action);
+      addToast('success', isRunning ? `Bot "${bot.name}" stopped.` : `Bot "${bot.name}" started successfully!`);
+      await refreshBots();
+    } catch (err: any) {
+      addToast('error', err.message || `Failed to ${action} bot`);
+    } finally {
+      setActionLoadingBotId(null);
+    }
+  };
 
   const getStorageCost = (size: string) => {
     switch (size) {
@@ -499,8 +516,8 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs pt-1 border-t border-slate-800/80">
           <div className="bg-slate-800/50 p-2.5 rounded-xl border border-slate-800">
-            <span className="text-slate-400 text-[10px] block font-medium">Per-Bot RAM Limit</span>
-            <strong className="text-white font-bold">80 MB (cgroups v2)</strong>
+            <span className="text-slate-400 text-[10px] block font-medium">Container Engine</span>
+            <strong className="text-white font-bold">Linux VPS Sandbox</strong>
           </div>
           <div className="bg-slate-800/50 p-2.5 rounded-xl border border-slate-800">
             <span className="text-slate-400 text-[10px] block font-medium">Process Isolation</span>
@@ -545,44 +562,83 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {bots.map((bot) => (
-              <div
-                key={bot.id}
-                onClick={() => navigate('/dashboard/bot?id=' + bot.id + '&tab=manage')}
-                className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md hover:border-[#24A1DE]/40 transition-all cursor-pointer group flex flex-col justify-between space-y-4"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-sky-50 text-[#0088cc] rounded-xl group-hover:bg-[#24A1DE] group-hover:text-white transition-colors">
-                        <Bot className="w-4.5 h-4.5" />
+            {bots.map((bot) => {
+              const isRunning = bot.status === 'running';
+              const isLoading = actionLoadingBotId === bot.id;
+              return (
+                <div
+                  key={bot.id}
+                  onClick={() => navigate('/dashboard/bot?id=' + bot.id + '&tab=manage')}
+                  className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs hover:shadow-md hover:border-[#24A1DE]/40 transition-all cursor-pointer group flex flex-col justify-between space-y-4"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-sky-50 text-[#0088cc] rounded-xl group-hover:bg-[#24A1DE] group-hover:text-white transition-colors">
+                          <Bot className="w-4.5 h-4.5" />
+                        </div>
+                        <div>
+                          <span className="font-extrabold text-slate-950 group-hover:text-[#0088cc] transition-colors block text-sm">
+                            {bot.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400 font-mono">@{bot.username}</span>
+                        </div>
                       </div>
-                      <span className="font-extrabold text-slate-950 group-hover:text-[#0088cc] transition-colors">
-                        {bot.name}
+                      <span className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-bold border ${
+                        isRunning
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : bot.status === 'stopped'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}>
+                        <span className={`w-2 h-2 rounded-full ${
+                          isRunning ? 'bg-emerald-500 animate-pulse' :
+                          bot.status === 'stopped' ? 'bg-amber-500' :
+                          'bg-rose-500'
+                        }`} />
+                        <span>{isRunning ? 'Running' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
                       </span>
                     </div>
-                    <span className={`w-2.5 h-2.5 rounded-full ${
-                      bot.status === 'running'
-                        ? 'bg-emerald-500 animate-pulse'
-                        : bot.status === 'stopped'
-                        ? 'bg-amber-500'
-                        : 'bg-rose-500'
-                    }`} />
+
+                    {/* Start / Stop Quick Toggle Button */}
+                    <div className="pt-1">
+                      {isRunning ? (
+                        <button
+                          type="button"
+                          onClick={(e) => handleQuickToggleBot(e, bot)}
+                          disabled={isLoading}
+                          className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Square className="w-3.5 h-3.5 fill-rose-600 text-rose-600" />
+                          <span>{isLoading ? 'Stopping...' : 'Stop Bot'}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => handleQuickToggleBot(e, bot)}
+                          disabled={isLoading}
+                          className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-white" />
+                          <span>{isLoading ? 'Starting...' : 'Start Bot'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-[11px]">
+                    <span className="text-slate-500 font-medium flex items-center gap-1">
+                      <HardDrive className="w-3.5 h-3.5 text-slate-400" />
+                      {bot.storageUsageMB ? `${bot.storageUsageMB.toFixed(1)} MB Used` : 'Dedicated Storage'}
+                    </span>
+                    <span className="text-[#0088cc] font-bold flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
+                      <span>Workspace</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </span>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-[11px]">
-                  <span className="text-slate-500 font-medium flex items-center gap-1">
-                    <HardDrive className="w-3.5 h-3.5 text-slate-400" />
-                    {bot.storageUsageMB ? `${bot.storageUsageMB.toFixed(1)} MB` : '200 MB Limit'}
-                  </span>
-                  <span className="text-[#0088cc] font-bold flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
-                    <span>Manage Bot</span>
-                    <ChevronRight className="w-3 h-3" />
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

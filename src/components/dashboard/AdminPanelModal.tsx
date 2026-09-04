@@ -96,6 +96,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
   const [savingPricing, setSavingPricing] = useState(false);
   const [actionInProgressBotId, setActionInProgressBotId] = useState<string | null>(null);
 
+  // Plan Management for Users
+  const [showPlanEditor, setShowPlanEditor] = useState(false);
+  const [customPlanName, setCustomPlanName] = useState('Custom Pro Hosting');
+  const [customActiveBots, setCustomActiveBots] = useState(2);
+  const [customTotalSlots, setCustomTotalSlots] = useState(6);
+  const [customStorageMB, setCustomStorageMB] = useState(500);
+  const [customDurationDays, setCustomDurationDays] = useState(30);
+  const [customPlanStatus, setCustomPlanStatus] = useState('active');
+  const [savingCustomPlan, setSavingCustomPlan] = useState(false);
+
   // Fetch all initial data
   const loadAdminData = async () => {
     setLoading(true);
@@ -172,13 +182,45 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
   // User Actions
   const handleViewUserDetail = async (userId: string) => {
     setLoadingUserDetail(true);
+    setShowPlanEditor(false);
     try {
       const detail = await api.getAdminUserDetail(userId);
       setSelectedUserDetail(detail);
+      if (detail?.subscription) {
+        setCustomPlanName(detail.subscription.plan_name || 'Custom Pro Hosting');
+        setCustomActiveBots(detail.subscription.active_bot_count || 2);
+        setCustomTotalSlots(detail.subscription.total_bot_slots || 6);
+        setCustomStorageMB(detail.subscription.db_storage_mb || 500);
+        setCustomDurationDays(detail.subscription.duration_days || 30);
+        setCustomPlanStatus(detail.subscription.status || 'active');
+      }
     } catch (e: any) {
       addToast('error', e.message || 'Failed to load user details');
     } finally {
       setLoadingUserDetail(false);
+    }
+  };
+
+  const handleSaveCustomPlan = async () => {
+    if (!selectedUserDetail?.user?.id) return;
+    setSavingCustomPlan(true);
+    try {
+      const res = await api.adminAssignPlan(selectedUserDetail.user.id, {
+        planName: customPlanName.trim() || 'Custom Pro Hosting',
+        activeBotCount: Number(customActiveBots) || 2,
+        totalBotSlots: Number(customTotalSlots) || (Number(customActiveBots) || 2) * 3,
+        dbStorageMB: Number(customStorageMB) || 500,
+        durationDays: Number(customDurationDays) || 30,
+        status: customPlanStatus,
+      });
+      addToast('success', res.message);
+      setShowPlanEditor(false);
+      await loadAdminData();
+      handleViewUserDetail(selectedUserDetail.user.id);
+    } catch (e: any) {
+      addToast('error', e.message || 'Failed to update user plan');
+    } finally {
+      setSavingCustomPlan(false);
     }
   };
 
@@ -996,7 +1038,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                       <span className="text-[11px] text-slate-500">Enable/disable or adjust monthly pricing for preset bot tiers</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {editingPricing.botPricingTiers?.map((tier, idx) => (
+                      {(editingPricing.botPricingTiers || []).map((tier, idx) => (
                         <div
                           key={idx}
                           className={`p-3.5 rounded-xl border transition-all space-y-2 ${
@@ -1010,7 +1052,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                                 type="checkbox"
                                 checked={tier.enabled !== false}
                                 onChange={(e) => {
-                                  const newTiers = [...editingPricing.botPricingTiers];
+                                  const newTiers = [...(editingPricing.botPricingTiers || [])];
                                   newTiers[idx].enabled = e.target.checked;
                                   setEditingPricing({ ...editingPricing, botPricingTiers: newTiers });
                                 }}
@@ -1025,7 +1067,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                               type="number"
                               value={tier.monthlyPriceINR}
                               onChange={(e) => {
-                                const newTiers = [...editingPricing.botPricingTiers];
+                                const newTiers = [...(editingPricing.botPricingTiers || [])];
                                 newTiers[idx].monthlyPriceINR = Number(e.target.value);
                                 setEditingPricing({ ...editingPricing, botPricingTiers: newTiers });
                               }}
@@ -1044,7 +1086,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                       <span className="text-[11px] text-slate-500">Pricing for customer disk quotas</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {editingPricing.storageTiersINR.map((tier, idx) => (
+                      {(editingPricing.storageTiersINR || []).map((tier, idx) => (
                         <div
                           key={idx}
                           className={`p-3.5 rounded-xl border transition-all space-y-2 ${
@@ -1058,7 +1100,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                                 type="checkbox"
                                 checked={tier.enabled !== false}
                                 onChange={(e) => {
-                                  const newTiers = [...editingPricing.storageTiersINR];
+                                  const newTiers = [...(editingPricing.storageTiersINR || [])];
                                   newTiers[idx].enabled = e.target.checked;
                                   setEditingPricing({ ...editingPricing, storageTiersINR: newTiers });
                                 }}
@@ -1073,7 +1115,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                               type="number"
                               value={tier.monthlyCostINR}
                               onChange={(e) => {
-                                const newTiers = [...editingPricing.storageTiersINR];
+                                const newTiers = [...(editingPricing.storageTiersINR || [])];
                                 newTiers[idx].monthlyCostINR = Number(e.target.value);
                                 setEditingPricing({ ...editingPricing, storageTiersINR: newTiers });
                               }}
@@ -1092,7 +1134,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                       <span className="text-[11px] text-slate-500">Incentivize multi-month customer commitments</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                      {editingPricing.durationDiscounts.map((d, idx) => (
+                      {(editingPricing.durationDiscounts || []).map((d, idx) => (
                         <div
                           key={idx}
                           className={`p-3.5 rounded-xl border transition-all space-y-2 ${
@@ -1106,7 +1148,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                                 type="checkbox"
                                 checked={d.enabled !== false}
                                 onChange={(e) => {
-                                  const newD = [...editingPricing.durationDiscounts];
+                                  const newD = [...(editingPricing.durationDiscounts || [])];
                                   newD[idx].enabled = e.target.checked;
                                   setEditingPricing({ ...editingPricing, durationDiscounts: newD });
                                 }}
@@ -1121,7 +1163,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                               type="number"
                               value={d.discountPercent}
                               onChange={(e) => {
-                                const newD = [...editingPricing.durationDiscounts];
+                                const newD = [...(editingPricing.durationDiscounts || [])];
                                 newD[idx].discountPercent = Number(e.target.value);
                                 setEditingPricing({ ...editingPricing, durationDiscounts: newD });
                               }}
@@ -1140,7 +1182,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                       <span className="text-[11px] text-slate-500">Configure tier pricing for script upload sizes</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                      {editingPricing.fileSizeTierCostsINR.map((f, idx) => (
+                      {(editingPricing.fileSizeTierCostsINR || []).map((f, idx) => (
                         <div
                           key={idx}
                           className={`p-3.5 rounded-xl border transition-all space-y-2 ${
@@ -1154,7 +1196,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                                 type="checkbox"
                                 checked={f.enabled !== false}
                                 onChange={(e) => {
-                                  const newF = [...editingPricing.fileSizeTierCostsINR];
+                                  const newF = [...(editingPricing.fileSizeTierCostsINR || [])];
                                   newF[idx].enabled = e.target.checked;
                                   setEditingPricing({ ...editingPricing, fileSizeTierCostsINR: newF });
                                 }}
@@ -1622,6 +1664,127 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
                     </div>
                   </div>
                 )}
+
+                {/* Plan & Add-On Management */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-[#24A1DE]" />
+                        <span>Plan & Add-On Management</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Admin override: Grant custom active bots, storage limits, and extend subscription validity.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPlanEditor(!showPlanEditor)}
+                      className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      {showPlanEditor ? 'Hide Plan Editor' : 'Grant / Edit Plan Add-On'}
+                    </button>
+                  </div>
+
+                  {!showPlanEditor ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-xs">
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-slate-400 text-[10px] block">Plan Name</span>
+                        <strong className="text-slate-800 font-bold">{selectedUserDetail.subscription?.plan_name || 'Free Trial'}</strong>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-slate-400 text-[10px] block">Active Bots / Slots</span>
+                        <strong className="text-slate-800 font-bold">
+                          {selectedUserDetail.subscription?.active_bot_count || 1} Active / {selectedUserDetail.subscription?.total_bot_slots || 3} Slots
+                        </strong>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-slate-400 text-[10px] block">Storage Quota</span>
+                        <strong className="text-slate-800 font-bold">{selectedUserDetail.subscription?.db_storage_mb || 250} MB</strong>
+                      </div>
+                      <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+                        <span className="text-slate-400 text-[10px] block">Plan Status</span>
+                        <strong className={`font-bold capitalize ${selectedUserDetail.subscription?.status === 'active' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          {selectedUserDetail.subscription?.status || 'Active'}
+                        </strong>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">Plan Title</label>
+                          <input
+                            type="text"
+                            value={customPlanName}
+                            onChange={(e) => setCustomPlanName(e.target.value)}
+                            placeholder="e.g. VIP Dedicated Pro Plan"
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#24A1DE]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">Plan Status</label>
+                          <select
+                            value={customPlanStatus}
+                            onChange={(e) => setCustomPlanStatus(e.target.value)}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none"
+                          >
+                            <option value="active">Active</option>
+                            <option value="trial">Trial</option>
+                            <option value="expired">Expired</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">Simultaneous Active Bots</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            value={customActiveBots}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 1;
+                              setCustomActiveBots(val);
+                              setCustomTotalSlots(val * 3);
+                            }}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">Storage Quota (MB)</label>
+                          <input
+                            type="number"
+                            min="50"
+                            step="50"
+                            value={customStorageMB}
+                            onChange={(e) => setCustomStorageMB(parseInt(e.target.value) || 250)}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-1">Validity (Days from now)</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="3650"
+                            value={customDurationDays}
+                            onChange={(e) => setCustomDurationDays(parseInt(e.target.value) || 30)}
+                            className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            onClick={handleSaveCustomPlan}
+                            disabled={savingCustomPlan}
+                            className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {savingCustomPlan ? 'Applying Plan...' : 'Save & Grant Plan Add-On'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Bots list */}
                 <div className="space-y-2">
