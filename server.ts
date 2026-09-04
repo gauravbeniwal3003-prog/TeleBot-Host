@@ -14,6 +14,7 @@ import { activityRouter } from './server/routes/activity';
 import { adminRouter } from './server/routes/admin';
 import { ticketsRouter } from './server/routes/tickets';
 import { projectsRouter } from './server/routes/projects';
+import { supabaseSyncEngine } from './server/services/supabaseSyncEngine';
 
 async function startServer() {
   const app = express();
@@ -104,6 +105,9 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[TeleHost Server] Running on http://0.0.0.0:${PORT}`);
     
+    // Start continuous Supabase Realtime Sync Engine (User deletion, Plan changes, Storage limits)
+    supabaseSyncEngine.start(10000);
+
     // Auto-bootstrap python environment for AI Studio previews
     if (process.env.NODE_ENV !== 'production') {
       import('child_process').then(({ exec }) => {

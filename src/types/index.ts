@@ -39,6 +39,8 @@ export interface ContainerTelemetry {
   restartCount: number;
   networkRxBytes: number;
   networkTxBytes: number;
+  lastExitCode?: number;
+  lastErrorMessage?: string;
 }
 
 export interface BotEnvVar {

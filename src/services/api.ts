@@ -53,6 +53,19 @@ class ApiService {
     return this.token;
   }
 
+  public getApiUrl(endpoint: string): string {
+    if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+      return endpoint;
+    }
+    const envUrl = (import.meta as any).env?.VITE_API_URL;
+    if (envUrl) {
+      const cleanBase = envUrl.replace(/\/+$/, '');
+      const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      return `${cleanBase}${cleanEndpoint}`;
+    }
+    return endpoint;
+  }
+
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = this.getToken();
     const headers: Record<string, string> = {
@@ -64,24 +77,30 @@ class ApiService {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const baseUrl = (import.meta as any).env?.VITE_API_URL || '';
-    const targetUrl = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
+    const targetUrl = this.getApiUrl(endpoint);
 
-    const response = await fetch(targetUrl, {
-      ...options,
-      headers,
-    });
+    try {
+      const response = await fetch(targetUrl, {
+        ...options,
+        headers,
+      });
 
-    const data = await response.json().catch(() => ({}));
+      const data = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-      if (response.status === 401 && endpoint !== '/api/auth/login' && endpoint !== '/api/auth/register') {
-        this.setToken(null);
+      if (!response.ok) {
+        if (response.status === 401 && endpoint !== '/api/auth/login' && endpoint !== '/api/auth/register') {
+          this.setToken(null);
+        }
+        throw new Error(data.error || `Request failed with status ${response.status}`);
       }
-      throw new Error(data.error || `Request failed with status ${response.status}`);
-    }
 
-    return data;
+      return data;
+    } catch (err: any) {
+      if (err instanceof TypeError && err.message?.toLowerCase().includes('fetch')) {
+        throw new Error('Connection Failed: Could not reach backend API server. If deployed on Vercel, ensure VITE_API_URL is set or backend API proxy is configured.');
+      }
+      throw err;
+    }
   }
 
   // ===================== AUTH SERVICES =====================
@@ -394,8 +413,8 @@ class ApiService {
   }
 
   async downloadBotFile(botId: string, filePath: string): Promise<void> {
-    const token = this.token || localStorage.getItem('telehost_token');
-    const url = `/api/bots/${botId}/files/download?filePath=${encodeURIComponent(filePath)}`;
+    const token = this.getToken();
+    const url = this.getApiUrl(`/api/bots/${botId}/files/download?filePath=${encodeURIComponent(filePath)}`);
     
     const response = await fetch(url, {
       headers: {

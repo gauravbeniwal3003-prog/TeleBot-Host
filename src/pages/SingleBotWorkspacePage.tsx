@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   Sliders,
   Database,
-  ArrowRight
+  ArrowRight,
+  Sparkles
 } from 'lucide-react';
 
 interface SingleBotWorkspacePageProps {
@@ -240,17 +241,37 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       
       // Step 5: VPS Telemetry Handshake & Connection Confirmation
       let isConfirmed = false;
-      for (let i = 0; i < 4; i++) {
+      let lastErrorMessage = '';
+      for (let i = 0; i < 6; i++) {
         await new Promise(r => setTimeout(r, 600));
         const tel = await api.getBotTelemetry(bot.id);
-        if (tel && (tel.state === 'ACTIVE' || tel.state === 'running')) {
+        if (tel) {
+          if (tel.state === 'ACTIVE' || tel.state === 'running') {
+            isConfirmed = true;
+            break;
+          }
+          if (tel.lastErrorMessage) {
+            lastErrorMessage = tel.lastErrorMessage;
+          }
+          if (tel.state === 'ERROR' && tel.lastExitCode !== undefined) {
+            lastErrorMessage = `Process exited with code ${tel.lastExitCode}.`;
+            break;
+          }
+        }
+      }
+
+      // Check bot object directly if telemetry polling was close
+      if (!isConfirmed) {
+        const botsList = await api.getBots();
+        const freshBot = botsList.find(b => b.id === bot.id);
+        if (freshBot && freshBot.status === 'running') {
           isConfirmed = true;
-          break;
+          setBot(freshBot);
         }
       }
       
       if (!isConfirmed) {
-        throw new Error("VPS Health Check Failed: The container process booted but exited immediately. Please inspect the 'Console Logs' tab for diagnostic output.");
+        throw new Error(lastErrorMessage ? `VPS Health Check Notice: ${lastErrorMessage} Please inspect the 'Console Logs' tab for python traceback.` : "VPS Health Check Failed: The bot process exited immediately. Please check the 'Console Logs' tab for diagnostic output.");
       }
       
       addToast('success', `Verified: Bot "${bot.name}" is successfully running on VPS!`);
@@ -354,22 +375,10 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
 
   const handleDownloadFile = async (file: BotFileItem) => {
     try {
-      const response = await fetch(`/api/bots/${bot.id}/files/download?filePath=${encodeURIComponent(file.filePath)}`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('telebot_token')}` }
-      });
-      if (!response.ok) throw new Error('Download failed');
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.fileName;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      await api.downloadBotFile(bot.id, file.filePath);
       addToast('success', `Downloaded "${file.fileName}"`);
-    } catch (e: any) {
-      addToast('error', e.message || 'Failed to download file');
+    } catch (err: any) {
+      addToast('error', err.message || 'Download failed');
     }
   };
 
@@ -418,8 +427,58 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       { label: 'Confirming secure socket link & active PID health...' }
     ];
 
+    const sub = user?.subscription;
+    const isTrial = sub?.status === 'trial';
+    const trialNotStarted = isTrial && !sub?.trialStarted;
+    
+    let trialHoursLeft = 0;
+    if (isTrial && sub?.trialStarted && sub?.expiryDate) {
+      const diff = new Date(sub.expiryDate).getTime() - new Date().getTime();
+      trialHoursLeft = Math.max(0, Math.floor(diff / (1000 * 60 * 60)));
+    }
+
     return (
       <div className="space-y-6 animate-in fade-in max-w-full">
+        {trialNotStarted && (
+          <div className="bg-sky-50 border border-sky-200 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-sm">
+            <div>
+              <h3 className="text-sm font-bold text-sky-950 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#0088cc]" />
+                1-Time 24-Hour Free Trial Available
+              </h3>
+              <p className="text-xs text-sky-800 mt-1">
+                Your 24-hour free trial timer will begin automatically once you click <strong>"Start Bot Engine"</strong> below for the first time.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/billing')}
+              className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0"
+            >
+              View Paid Plans
+            </button>
+          </div>
+        )}
+
+        {isTrial && sub?.trialStarted && (
+          <div className="bg-sky-50 border border-sky-200 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-sm">
+            <div>
+              <h3 className="text-sm font-bold text-sky-950 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-[#0088cc]" />
+                24-Hour Free Trial Active
+              </h3>
+              <p className="text-xs text-sky-800 mt-1">
+                Your bot is hosted on our cloud VPS. You have <strong>{trialHoursLeft} hours remaining</strong> on your free trial.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/billing')}
+              className="px-4 py-2 bg-[#0088cc] hover:bg-[#0077b3] text-white text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0"
+            >
+              Upgrade Plan
+            </button>
+          </div>
+        )}
+
         {bot.status === 'expired' && (
           <div className="bg-rose-50 border border-rose-200 p-6 rounded-2xl shadow-sm space-y-3">
             <div className="flex items-center gap-3 text-rose-700">

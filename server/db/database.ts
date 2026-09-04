@@ -7,6 +7,9 @@ import {
   syncProjectToSupabase,
   syncSubscriptionToSupabase,
   syncBotToSupabase,
+  syncOrderToSupabase,
+  syncTicketToSupabase,
+  syncAllToSupabase,
   deleteUserFromSupabase,
   deleteProjectFromSupabase,
   deleteBotFromSupabase,
@@ -162,6 +165,14 @@ class RelationalDatabase {
               this.data.bots.push(b);
             }
           });
+          
+          this.save();
+        } else if (supa && supa.users && supa.users.length === 0 && this.data.users && this.data.users.length > 0) {
+          // Supabase is empty but we have local data! Push to Supabase to initialize it.
+          console.log(`[Supabase Engine] Supabase is empty. Syncing ${this.data.users.length} local users/bots to Supabase...`);
+          syncAllToSupabase(this.data).then(() => {
+            console.log(`[Supabase Engine] Successfully pushed local database to Supabase!`);
+          }).catch(console.error);
         }
       }).catch((err) => {
         console.warn('[Supabase Engine Note]', err.message || err);
@@ -365,6 +376,12 @@ class RelationalDatabase {
       if (this.data.bots) {
         this.data.bots.forEach((b) => syncBotToSupabase(b));
       }
+      if (this.data.orders) {
+        this.data.orders.forEach((o) => syncOrderToSupabase(o));
+      }
+      if (this.data.tickets) {
+        this.data.tickets.forEach((t) => syncTicketToSupabase(t));
+      }
     } catch (e) {
       console.error('Failed to persist database file:', e);
     }
@@ -455,6 +472,66 @@ class RelationalDatabase {
   // ==========================================
   // USER METHODS
   // ==========================================
+
+  upsertUserFromSupabase(supaUser: any): DBUser {
+    const idx = this.data.users.findIndex((u) => u.id === supaUser.id || u.email.toLowerCase() === supaUser.email.toLowerCase());
+    const userObj: DBUser = {
+      id: supaUser.id,
+      email: supaUser.email.toLowerCase().trim(),
+      name: supaUser.name || supaUser.email.split('@')[0],
+      password_hash: supaUser.password_hash,
+      telegram_username: supaUser.telegram_username,
+      role: supaUser.role || 'user',
+      status: supaUser.status || 'active',
+      is_verified: supaUser.is_verified ?? true,
+      created_at: supaUser.created_at || new Date().toISOString(),
+      updated_at: supaUser.updated_at || new Date().toISOString(),
+    };
+
+    if (idx >= 0) {
+      this.data.users[idx] = { ...this.data.users[idx], ...userObj };
+    } else {
+      this.data.users.push(userObj);
+    }
+
+    // Ensure user has at least one project
+    const userProjects = this.getUserProjects(userObj.id);
+    if (userProjects.length === 0) {
+      const projId = `proj_${userObj.id.replace('usr_', '')}_default`;
+      const defaultProj: DBProject = {
+        id: projId,
+        user_id: userObj.id,
+        name: 'My Telegram Bots',
+        created_at: userObj.created_at,
+        updated_at: userObj.updated_at,
+      };
+      this.data.projects.push(defaultProj);
+      
+      const userSub = this.data.subscriptions.find((s) => s.user_id === userObj.id);
+      if (!userSub) {
+        this.data.subscriptions.push({
+          id: `sub_${Math.floor(100000 + Math.random() * 900000)}`,
+          user_id: userObj.id,
+          project_id: projId,
+          plan_id: 'starter',
+          plan_name: 'Starter Bot Plan (Free Trial)',
+          status: 'trial',
+          start_date: userObj.created_at,
+          expiry_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+          auto_renew: false,
+          total_bot_slots: 3,
+          active_bot_count: 1,
+          ram_limit_mb: 512,
+          storage_limit_gb: 2,
+          created_at: userObj.created_at,
+          updated_at: userObj.updated_at,
+        });
+      }
+    }
+
+    this.save();
+    return idx >= 0 ? this.data.users[idx] : userObj;
+  }
 
   findUserByEmail(email: string): DBUser | undefined {
     return this.data.users.find((u) => u.email.toLowerCase() === email.toLowerCase().trim());
@@ -675,6 +752,19 @@ class RelationalDatabase {
 
   getAllUsers(): DBUser[] {
     return this.data.users;
+  }
+
+  purgeUserCompletely(userId: string): void {
+    this.data.users = this.data.users.filter((u) => u.id !== userId);
+    this.data.projects = this.data.projects.filter((p) => p.user_id !== userId);
+    this.data.subscriptions = this.data.subscriptions.filter((s) => s.user_id !== userId);
+    this.data.bots = this.data.bots.filter((b) => b.user_id !== userId);
+    this.data.files = this.data.files.filter((f) => f.user_id !== userId);
+    this.data.env_vars = this.data.env_vars.filter((e) => e.user_id !== userId);
+    this.data.logs = this.data.logs.filter((l) => l.user_id !== userId);
+    this.data.orders = this.data.orders.filter((o) => o.user_id !== userId);
+    this.data.tickets = this.data.tickets.filter((t) => t.user_id !== userId);
+    this.save();
   }
 
   // ==========================================

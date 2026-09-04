@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db/database';
 import { generateToken, requireAuth, optionalAuth } from '../middleware/auth';
+import { fetchUserFromSupabaseByEmail } from '../db/supabaseClient';
 
 export const authRouter = Router();
 
@@ -42,7 +43,7 @@ function formatUserResponse(userId: string) {
 }
 
 // 1. REGISTER
-authRouter.post('/register', (req: Request, res: Response): void => {
+authRouter.post('/register', async (req: Request, res: Response): Promise<void> => {
   try {
     let { name, email, password } = req.body;
 
@@ -57,9 +58,10 @@ authRouter.post('/register', (req: Request, res: Response): void => {
       ? password.trim()
       : (password && typeof password === 'string' ? password.trim().padEnd(6, '0') : 'password123');
 
-    // Check if account already exists
-    const existingUser = db.findUserByEmail(cleanEmail);
-    if (existingUser) {
+    // Check if account already exists in Supabase or local cache
+    const supaExisting = await fetchUserFromSupabaseByEmail(cleanEmail);
+    const localExisting = db.findUserByEmail(cleanEmail);
+    if (supaExisting || localExisting) {
       res.status(400).json({ error: 'An account with this email address already exists. Please sign in instead.' });
       return;
     }
@@ -90,7 +92,7 @@ authRouter.post('/register', (req: Request, res: Response): void => {
 });
 
 // 2. LOGIN
-authRouter.post('/login', (req: Request, res: Response): void => {
+authRouter.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
@@ -99,9 +101,14 @@ authRouter.post('/login', (req: Request, res: Response): void => {
       return;
     }
 
-    const user = db.findUserByEmail(email);
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Verify account directly against Supabase first
+    const supaUser = await fetchUserFromSupabaseByEmail(cleanEmail);
+    let user = supaUser ? db.upsertUserFromSupabase(supaUser) : db.findUserByEmail(cleanEmail);
+
     if (!user) {
-      res.status(401).json({ error: 'Invalid email or password.' });
+      res.status(401).json({ error: 'Invalid email or password. No account found with this email address.' });
       return;
     }
 

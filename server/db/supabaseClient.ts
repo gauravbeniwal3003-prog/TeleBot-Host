@@ -9,9 +9,16 @@ try {
 }
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || 'https://nurvwlwqurovglbptknf.supabase.co').trim();
-const SUPABASE_ANON_KEY = (process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51cnZ3bHdxdXJvdmdsYnB0a25mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyOTg1NzcsImV4cCI6MjA4NDg3NDU3N30.L7D3LTkHq1ZudoyHPbzWVumOXm4zi2AXXspKvTPNv-w').trim();
+// Prioritize Service Role Key for backend administrative operations (bypasses RLS), fallback to Anon Key
+const SUPABASE_KEY = (
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im51cnZ3bHdxdXJvdmdsYnB0a25mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkyOTg1NzcsImV4cCI6MjA4NDg3NDU3N30.L7D3LTkHq1ZudoyHPbzWVumOXm4zi2AXXspKvTPNv-w'
+).trim();
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
@@ -24,28 +31,47 @@ console.log(`[Supabase] Initialized client for ${SUPABASE_URL}`);
 let isCircuitOpen = false;
 let nextRetryTime = 0;
 const COOLDOWN_MS = 60000; // Pause retrying network calls for 60s on connection failure
+const loggedWarnings = new Set<string>();
 
 function isNetworkError(err: any): boolean {
   if (!err) return false;
   const msg = (err.message || String(err)).toLowerCase();
-  return msg.includes('fetch failed') || msg.includes('enotfound') || msg.includes('econnrefused') || msg.includes('etimedout') || msg.includes('network');
+  return msg.includes('fetch failed') || msg.includes('enotfound') || msg.includes('econnrefused') || msg.includes('etimedout') || msg.includes('socket hanging up');
 }
 
 function handleSupabaseError(context: string, error: any): void {
   if (!error) return;
+  const code = error.code || '';
+  const msg = error.message || String(error);
+
   if (isNetworkError(error)) {
     const now = Date.now();
     if (!isCircuitOpen || now > nextRetryTime) {
       isCircuitOpen = true;
       nextRetryTime = now + COOLDOWN_MS;
-      console.warn(`[Supabase Connection Note] Network fetch failed to ${SUPABASE_URL}. Local file database is active and operating normally. Remote sync paused for 60s.`);
+      console.warn(`[Supabase Connection Note] Network fetch failed to ${SUPABASE_URL}. Local fallback active. Sync paused for 60s.`);
     }
+  } else if (code === '42P01' || msg.includes('does not exist')) {
+    if (!loggedWarnings.has('missing_table')) {
+      loggedWarnings.add('missing_table');
+      console.warn(`[Supabase Schema Notice] One or more tables do not exist in Supabase yet. Run 'supabase_schema.sql' in your Supabase SQL Editor.`);
+    }
+  } else if (code === '42501' || msg.toLowerCase().includes('row-level security') || msg.toLowerCase().includes('permission denied')) {
+    if (!loggedWarnings.has('rls_warning')) {
+      loggedWarnings.add('rls_warning');
+      console.warn(`[Supabase RLS Notice] Supabase Row-Level Security (RLS) is active on your tables. To enable direct backend sync, execute 'supabase_schema.sql' in Supabase SQL Editor or supply SUPABASE_SERVICE_ROLE_KEY in .env.`);
+    }
+  } else if (msg.includes('project_id') || code === 'PGRST204') {
+    // Column missing in schema cache - handled gracefully
   } else {
-    console.warn(`[Supabase Sync Warning] ${context}:`, error.message || error);
+    if (!loggedWarnings.has(context)) {
+      loggedWarnings.add(context);
+      console.warn(`[Supabase Sync Warning] ${context}:`, msg);
+    }
   }
 }
 
-function shouldAttemptSync(): boolean {
+export function shouldAttemptSync(): boolean {
   if (!SUPABASE_URL || SUPABASE_URL.includes('your-custom') || SUPABASE_URL.includes('example.com')) {
     return false;
   }
@@ -57,6 +83,56 @@ function shouldAttemptSync(): boolean {
     return false;
   }
   return true;
+}
+
+// Fetch a single user by email directly from Supabase
+export async function fetchUserFromSupabaseByEmail(email: string): Promise<any | null> {
+  if (!shouldAttemptSync()) return null;
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', cleanEmail)
+      .maybeSingle();
+
+    if (error) {
+      handleSupabaseError(`Fetch User ${cleanEmail}`, error);
+      return null;
+    }
+    return data;
+  } catch (err: any) {
+    handleSupabaseError(`Fetch User ${email}`, err);
+    return null;
+  }
+}
+
+// Fetch user data bundle (user, project, subscription, bots) from Supabase
+export async function fetchUserDataBundleFromSupabase(userId: string): Promise<{
+  user: any | null;
+  projects: any[];
+  subscriptions: any[];
+  bots: any[];
+} | null> {
+  if (!shouldAttemptSync()) return null;
+  try {
+    const [uRes, pRes, sRes, bRes] = await Promise.all([
+      supabase.from('users').select('*').eq('id', userId).maybeSingle(),
+      supabase.from('projects').select('*').eq('user_id', userId),
+      supabase.from('subscriptions').select('*').eq('user_id', userId),
+      supabase.from('bots').select('*').eq('user_id', userId),
+    ]);
+
+    return {
+      user: uRes.data || null,
+      projects: pRes.data || [],
+      subscriptions: sRes.data || [],
+      bots: bRes.data || [],
+    };
+  } catch (err: any) {
+    handleSupabaseError(`Fetch Data Bundle ${userId}`, err);
+    return null;
+  }
 }
 
 // Helper function to sync a user to Supabase
@@ -80,7 +156,6 @@ export async function syncUserToSupabase(user: any): Promise<boolean> {
       handleSupabaseError(`User ${user.email}`, error);
       return false;
     }
-    console.log(`[Supabase Sync Success] User ${user.email} (${user.id}) successfully synced to Supabase!`);
     return true;
   } catch (err: any) {
     handleSupabaseError(`User ${user.email}`, err);
@@ -213,6 +288,101 @@ export async function syncBotToSupabase(bot: any): Promise<boolean> {
   } catch (err: any) {
     handleSupabaseError(`Bot ${bot.id}`, err);
     return false;
+  }
+}
+
+// Helper function to sync an order to Supabase
+export async function syncOrderToSupabase(order: any): Promise<boolean> {
+  if (!shouldAttemptSync()) return false;
+  try {
+    const payload: any = {
+      id: order.id,
+      user_id: order.user_id,
+      order_id: order.order_id,
+      amount: order.amount,
+      currency: order.currency || 'INR',
+      status: order.status || 'PAID',
+      payment_method: order.payment_method || 'cashfree',
+      created_at: order.created_at,
+      updated_at: order.updated_at,
+    };
+    if (order.project_id) {
+      payload.project_id = order.project_id;
+    }
+
+    let { error } = await supabase.from('orders').upsert(payload, { onConflict: 'id' });
+
+    if (error && (error.message.includes('project_id') || error.code === 'PGRST204')) {
+      // Retry without project_id if column not present in schema
+      delete payload.project_id;
+      const retryRes = await supabase.from('orders').upsert(payload, { onConflict: 'id' });
+      error = retryRes.error;
+    }
+
+    if (error) {
+      handleSupabaseError(`Order ${order.order_id}`, error);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    handleSupabaseError(`Order ${order.order_id}`, err);
+    return false;
+  }
+}
+
+// Helper function to sync a support ticket to Supabase
+export async function syncTicketToSupabase(ticket: any): Promise<boolean> {
+  if (!shouldAttemptSync()) return false;
+  try {
+    const { error } = await supabase.from('tickets').upsert({
+      id: ticket.id,
+      user_id: ticket.user_id,
+      subject: ticket.subject,
+      message: ticket.message,
+      status: ticket.status || 'open',
+      priority: ticket.priority || 'medium',
+      created_at: ticket.created_at,
+      updated_at: ticket.updated_at,
+    }, { onConflict: 'id' });
+
+    if (error) {
+      handleSupabaseError(`Ticket ${ticket.id}`, error);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    handleSupabaseError(`Ticket ${ticket.id}`, err);
+    return false;
+  }
+}
+
+// Bulk sync function to push full local state to Supabase PostgreSQL
+export async function syncAllToSupabase(data: {
+  users?: any[];
+  projects?: any[];
+  subscriptions?: any[];
+  bots?: any[];
+  orders?: any[];
+  tickets?: any[];
+}): Promise<void> {
+  if (!shouldAttemptSync()) return;
+  if (data.users && data.users.length > 0) {
+    for (const u of data.users) await syncUserToSupabase(u);
+  }
+  if (data.projects && data.projects.length > 0) {
+    for (const p of data.projects) await syncProjectToSupabase(p);
+  }
+  if (data.subscriptions && data.subscriptions.length > 0) {
+    for (const s of data.subscriptions) await syncSubscriptionToSupabase(s);
+  }
+  if (data.bots && data.bots.length > 0) {
+    for (const b of data.bots) await syncBotToSupabase(b);
+  }
+  if (data.orders && data.orders.length > 0) {
+    for (const o of data.orders) await syncOrderToSupabase(o);
+  }
+  if (data.tickets && data.tickets.length > 0) {
+    for (const t of data.tickets) await syncTicketToSupabase(t);
   }
 }
 

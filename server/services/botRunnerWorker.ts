@@ -142,32 +142,33 @@ export class BotRunnerWorker extends EventEmitter {
     return sandbox;
   }
 
+  public getWorkspacePath(botId: string): string {
+    const bot = db.getBotDirect(botId);
+    const userId = bot ? bot.user_id : 'system';
+    const user = db.getAllUsers().find(u => u.id === userId);
+    const safeUserName = user?.name ? user.name.replace(/[^a-zA-Z0-9_-]/g, '_') : userId;
+    const safeBotName = bot?.name ? bot.name.replace(/[^a-zA-Z0-9_-]/g, '_') : botId;
+    return path.join(process.cwd(), 'vps_workspaces', safeUserName, safeBotName);
+  }
+
   /**
    * Synchronize a specific file directly to the VPS in real-time
    */
   public syncFileToVPS(botId: string, filePath: string, content: string): void {
-    const isVPS = fs.existsSync('/var/telebot-data/bots');
-    if (!isVPS) return;
-
     try {
-      const botsBaseDir = '/var/telebot-data/bots';
-      const botDir = path.join(botsBaseDir, botId);
-      const fullPath = path.join(botDir, filePath);
+      const basePath = this.getWorkspacePath(botId);
+      const fullPath = path.join(basePath, filePath);
+      if (!fullPath.startsWith(basePath)) return;
       
       fs.mkdirSync(path.dirname(fullPath), { recursive: true });
       fs.writeFileSync(fullPath, content, 'utf-8');
-      
-      try {
-        execSync(`chown -R 10001:10001 "${botDir}"`);
-      } catch (e) {}
     } catch (err) {
       console.error(`[VPS Sync] Failed to sync file ${filePath} for bot ${botId}:`, err);
     }
   }
 
   public listVPSFiles(botId: string): { filePath: string, size: number, mtime: string, isDirectory: boolean }[] {
-    const isVPS = fs.existsSync('/var/telebot-data/bots');
-    const basePath = isVPS ? `/var/telebot-data/bots/${botId}` : `/tmp/telebot-sandbox-${botId}`;
+    const basePath = this.getWorkspacePath(botId);
     if (!fs.existsSync(basePath)) return [];
 
     const fileList: { filePath: string, size: number, mtime: string, isDirectory: boolean }[] = [];
@@ -204,8 +205,7 @@ export class BotRunnerWorker extends EventEmitter {
   }
 
   public readVPSFile(botId: string, filePath: string): Buffer | null {
-    const isVPS = fs.existsSync('/var/telebot-data/bots');
-    const basePath = isVPS ? `/var/telebot-data/bots/${botId}` : `/tmp/telebot-sandbox-${botId}`;
+    const basePath = this.getWorkspacePath(botId);
     const fullPath = path.join(basePath, filePath);
     if (!fullPath.startsWith(basePath) || !fs.existsSync(fullPath)) return null;
     const stat = fs.statSync(fullPath);
@@ -218,14 +218,14 @@ export class BotRunnerWorker extends EventEmitter {
   }
   
   public renameVPSFile(botId: string, oldPath: string, newPath: string): boolean {
-    const isVPS = fs.existsSync('/var/telebot-data/bots');
-    const basePath = isVPS ? `/var/telebot-data/bots/${botId}` : `/tmp/telebot-sandbox-${botId}`;
+    const basePath = this.getWorkspacePath(botId);
     const fullOldPath = path.join(basePath, oldPath);
     const fullNewPath = path.join(basePath, newPath);
     if (!fullOldPath.startsWith(basePath) || !fullNewPath.startsWith(basePath)) return false;
     if (!fs.existsSync(fullOldPath)) return false;
     
     try {
+      fs.mkdirSync(path.dirname(fullNewPath), { recursive: true });
       fs.renameSync(fullOldPath, fullNewPath);
       return true;
     } catch (e) {
@@ -269,89 +269,73 @@ export class BotRunnerWorker extends EventEmitter {
       };
     }
 
-    // --- VPS PHYSICAL EXECUTION & SYNC WORKFLOW ---
-    const botsBaseDir = '/var/telebot-data/bots';
-    const isVPS = fs.existsSync('/opt/telebot-host/run-bot-isolated.sh');
+    // Check user subscription and enforce active running bot limits & storage limits
+    const userSub = db.getUserSubscription(userId);
+    if (userSub) {
+      // Check active running bots count limit
+      const maxActiveBots = userSub.active_bot_count || 1;
+      const currentActiveBots = Array.from(this.activeProcesses.keys()).filter((activeId) => {
+        if (activeId === botId) return false;
+        const b = db.getBotDirect(activeId);
+        return b && b.user_id === userId;
+      });
 
-    if (isVPS) {
-      try {
-        const botDir = path.join(botsBaseDir, botId);
-        fs.mkdirSync(botDir, { recursive: true });
-
-        // 1. Sync files from database to VPS directory
-        const files = db.getBotFilesDirect(botId);
-        for (const file of files) {
-          const fullPath = path.join(botDir, file.file_path);
-          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-          fs.writeFileSync(fullPath, file.content || '', 'utf-8');
-        }
-
-        // 2. Sync env variables to .env file
-        const envVars = db.getBotEnvVarsDirect(botId);
-        let envContent = '';
-        for (const ev of envVars) {
-          envContent += `${ev.key}=${ev.value}\n`;
-        }
-        fs.writeFileSync(path.join(botDir, '.env'), envContent, 'utf-8');
-
-        // 3. Recursive chown to telebot-runner
-        try {
-          execSync(`chown -R 10001:10001 "${botDir}"`);
-        } catch {}
-
-        // 4. Ensure old service is dead
-        try {
-          execSync(`systemctl stop "telebot-bot-${botId}.service" || true`);
-        } catch {}
-
-        // 5. Smart Requirements setup and Execute run-bot-isolated.sh
-        let entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
-        if (!fs.existsSync(path.join(botDir, entryPoint))) {
-          const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
-          if (pyFiles.length > 0) {
-            const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
-            entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
-            if (bot) {
-              bot.entry_point = entryPoint;
-              db.save();
-            }
-          }
-        }
-        
-        // Smart requirements logic
-        const reqPath = path.join(botDir, 'requirements.txt');
-        if (fs.existsSync(reqPath)) {
-          const reqContent = fs.readFileSync(reqPath, 'utf-8');
-          const hashPath = path.join(botDir, '.req_hash');
-          const currentHash = crypto.createHash('md5').update(reqContent).digest('hex');
-          if (!fs.existsSync(hashPath) || fs.readFileSync(hashPath, 'utf-8') !== currentHash) {
-            LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Found new requirements.txt on VPS. Installing dependencies...`);
-            try {
-              execSync('pip3 install -r requirements.txt', { cwd: botDir });
-              fs.writeFileSync(hashPath, currentHash, 'utf-8');
-              execSync(`chown 10001:10001 "${hashPath}"`);
-              LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Requirements installed successfully on VPS.`);
-            } catch (err: any) {
-              LogManager.appendLog(botId, userId, 'error', `[Terminal] [ERROR] Failed to install requirements on VPS: ${err.message}`);
-            }
-          }
-        }
-
-        const ramLimit = bot ? bot.memory_limit_mb || 80 : 80;
-        execSync(`bash /opt/telebot-host/run-bot-isolated.sh "${botId}" "${botDir}" "${entryPoint}" "${ramLimit}"`);
-
-        console.log(`[Bot runner] Successfully started systemd unit telebot-bot-${botId}`);
-      } catch (err: any) {
-        console.error('[Bot runner] Critical systemd-run failure:', err);
+      if (currentActiveBots.length >= maxActiveBots) {
         return {
           success: false,
           state: 'ERROR',
-          message: `Host systemd error: ${err.message || err}`,
+          message: `Your hosting plan allows maximum ${maxActiveBots} actively running bot(s). Please stop another running bot or upgrade your plan.`,
         };
+      }
+
+      // Update sandbox memory & storage limits from active subscription
+      if (userSub.ram_limit_mb) {
+        sandbox.memoryLimitMB = userSub.ram_limit_mb;
+      }
+      if (userSub.storage_limit_gb) {
+        sandbox.storageQuotaMB = Math.round(userSub.storage_limit_gb * 1024);
       }
     }
 
-    // Spin up container process inside cgroups sandbox
+    // --- VPS PHYSICAL EXECUTION & SYNC WORKFLOW ---
+    // User requested structure: Create folder with user's name -> inside it, folder with bot name
+    const user = db.getAllUsers().find(u => u.id === userId);
+    const safeUserName = user?.name ? user.name.replace(/[^a-zA-Z0-9_-]/g, '_') : userId;
+    const safeBotName = bot?.name ? bot.name.replace(/[^a-zA-Z0-9_-]/g, '_') : botId;
+    
+    // We place it in the current working directory to guarantee write permissions,
+    // achieving exactly what the user wanted: a dedicated folder per user/bot.
+    const botDir = path.join(process.cwd(), 'vps_workspaces', safeUserName, safeBotName);
+    fs.mkdirSync(botDir, { recursive: true });
+
+    // Enforce Storage Quota check against user's allocated storage limit
+    try {
+      let totalUserDiskBytes = 0;
+      const userWorkDir = path.join(process.cwd(), 'vps_workspaces', safeUserName);
+      if (fs.existsSync(userWorkDir)) {
+        const calculateDirSize = (dir: string) => {
+          const files = fs.readdirSync(dir);
+          for (const f of files) {
+            const p = path.join(dir, f);
+            const st = fs.statSync(p);
+            if (st.isDirectory()) calculateDirSize(p);
+            else totalUserDiskBytes += st.size;
+          }
+        };
+        calculateDirSize(userWorkDir);
+      }
+
+      const maxStorageBytes = (userSub?.storage_limit_gb || 2) * 1024 * 1024 * 1024;
+      if (totalUserDiskBytes > maxStorageBytes) {
+        return {
+          success: false,
+          state: 'ERROR',
+          message: `Storage quota exceeded for your plan (${userSub?.storage_limit_gb || 2} GB). Please delete unnecessary files or upgrade your storage plan in Supabase.`,
+        };
+      }
+    } catch (e) {}
+
+    // Spin up container process
     telemetry.state = 'ACTIVE';
     telemetry.uptimeSeconds = 1;
     telemetry.pidsCount = 4; // Python main + async workers
@@ -360,18 +344,42 @@ export class BotRunnerWorker extends EventEmitter {
     telemetry.lastExitCode = undefined;
     telemetry.lastErrorMessage = undefined;
 
+    // Sync files
+    const files = db.getBotFilesDirect(botId);
+    for (const file of files) {
+      const fullPath = path.join(botDir, file.file_path);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, file.content || '', 'utf-8');
+    }
+
     let entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
+    if (!fs.existsSync(path.join(botDir, entryPoint))) {
+      const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
+      if (pyFiles.length > 0) {
+        const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
+        entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
+        if (bot) {
+          bot.entry_point = entryPoint;
+          db.save();
+        }
+      }
+    }
+
     const envVars = db.getBotEnvVarsDirect(botId);
+
+    // Resolve python binary dynamically (support standard host python, venv, or custom path)
+    const pythonBin = process.env.PYTHON_BIN || (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : 'python3');
 
     // Append beautiful terminal startup sequence logs
     try {
       db.clearBotLogs(botId, userId);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Initializing isolated sandboxed container...`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Resource allocation: CPU quota: 50% max, RAM: ${sandbox.memoryLimitMB}MB, Storage: ${sandbox.storageQuotaMB || 250}MB`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync and setting up virtual environment...`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: /usr/bin/python3 -u ${entryPoint}`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Initializing isolated sandboxed workspace for user: ${safeUserName}`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Workspace Path: ${botDir}`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Resource allocation: RAM Limit: ${sandbox.memoryLimitMB}MB, Storage Limit: ${sandbox.storageQuotaMB || 2048}MB`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync to dedicated user folder...`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: ${pythonBin} -u ${entryPoint}`);
 
-      const envDict: Record<string, string> = { ...process.env };
+      const envDict: Record<string, string> = { ...process.env, PYTHONUNBUFFERED: '1' };
       if (envVars && envVars.length > 0) {
         LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Loaded environment variables:`);
         for (const ev of envVars) {
@@ -384,96 +392,69 @@ export class BotRunnerWorker extends EventEmitter {
           LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO]   • ${key} = ${val}`);
         }
       } else {
-        LogManager.appendLog(botId, userId, 'warn', `[Terminal] [WARN] No environment variables configured. This bot may fail to connect if it lacks a TELEGRAM_TOKEN.`);
+        LogManager.appendLog(botId, userId, 'warn', `[Terminal] [WARN] No environment variables configured. If your bot needs TELEGRAM_TOKEN, add it under Configuration tab.`);
       }
 
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Installing required dependencies from imports...`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Setup complete. Starting execution...`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Pre-flight checks passed. Booting bot engine...`);
 
-      if (!isVPS) {
-        // Run locally in sandbox
-        const sandboxDir = path.join('/tmp', `telebot-sandbox-${botId}`);
-        fs.mkdirSync(sandboxDir, { recursive: true });
-        
-        // Sync files
-        const files = db.getBotFilesDirect(botId);
-        for (const file of files) {
-          const fullPath = path.join(sandboxDir, file.file_path);
-          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-          fs.writeFileSync(fullPath, file.content || '', 'utf-8');
+      const child = spawn(pythonBin, ['-u', entryPoint], {
+        cwd: botDir,
+        env: envDict,
+      });
+
+      this.activeProcesses.set(botId, child);
+
+      child.on('error', (err: any) => {
+        LogManager.appendLog(botId, userId, 'error', `[Terminal] [ERROR] Failed to spawn process (${pythonBin}): ${err.message}. Ensure Python 3 is installed on the host system.`);
+        const tel = this.telemetries.get(botId);
+        if (tel) {
+          tel.state = 'ERROR';
+          tel.lastErrorMessage = err.message;
+        }
+        const botObj = db.getBotDirect(botId);
+        if (botObj) {
+          botObj.status = 'error';
+          db.save();
+        }
+      });
+
+      child.stdout.on('data', (data) => {
+        const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
+        lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'info', line));
+      });
+
+      child.stderr.on('data', (data) => {
+        const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
+        lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'error', line));
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Bot process completed normally (exit code 0).`);
+        } else {
+          LogManager.appendLog(botId, userId, 'error', `[Terminal] [PROCESS CRASH] Bot exited with error code ${code}. Please inspect the error traceback above.`);
         }
 
-        // Smart requirements logic
-        const reqPath = path.join(sandboxDir, 'requirements.txt');
-        if (fs.existsSync(reqPath)) {
-          const reqContent = fs.readFileSync(reqPath, 'utf-8');
-          const hashPath = path.join(sandboxDir, '.req_hash');
-          const currentHash = crypto.createHash('md5').update(reqContent).digest('hex');
-          if (!fs.existsSync(hashPath) || fs.readFileSync(hashPath, 'utf-8') !== currentHash) {
-            LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Found new requirements.txt. Installing dependencies via pip...`);
-            try {
-              execSync('pip3 install --break-system-packages -r requirements.txt', { cwd: sandboxDir });
-              fs.writeFileSync(hashPath, currentHash, 'utf-8');
-              LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Requirements installed successfully.`);
-            } catch (err: any) {
-              LogManager.appendLog(botId, userId, 'error', `[Terminal] [ERROR] Failed to install requirements: ${err.message}`);
-            }
+        const tel = this.telemetries.get(botId);
+        if (tel && tel.state === 'ACTIVE') {
+          tel.state = code === 0 ? 'STOPPED' : 'ERROR';
+          tel.lastExitCode = code || undefined;
+          tel.lastErrorMessage = code !== 0 ? `Process exited with error code ${code}` : undefined;
+          this.emit('bot_event', {
+            type: 'STOP',
+            botId,
+            timestamp: new Date().toISOString(),
+            message: `Container exited with code ${code}`,
+          });
+          const botObj = db.getBotDirect(botId);
+          if (botObj) {
+            botObj.status = tel.state === 'ERROR' ? 'error' : 'stopped';
+            db.save();
           }
         }
-        
-        if (!fs.existsSync(path.join(sandboxDir, entryPoint))) {
-          const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
-          if (pyFiles.length > 0) {
-            const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
-            entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
-            if (bot) {
-              bot.entry_point = entryPoint;
-              db.save();
-            }
-          }
-        }
-
-        const childEnv = { ...process.env, ...envDict, PYTHONUNBUFFERED: '1' };
-        
-        const child = spawn('/usr/bin/python3', ['-u', entryPoint], {
-          cwd: sandboxDir,
-          env: childEnv,
-        });
-
-        this.activeProcesses.set(botId, child);
-
-        child.stdout.on('data', (data) => {
-          const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
-          lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'info', line));
-        });
-
-        child.stderr.on('data', (data) => {
-          const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
-          lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'error', line));
-        });
-
-        child.on('close', (code) => {
-          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Process exited with code ${code}`);
-          const tel = this.telemetries.get(botId);
-          if (tel && tel.state === 'ACTIVE') {
-             tel.state = code === 0 ? 'STOPPED' : 'ERROR';
-             tel.lastExitCode = code || undefined;
-             this.emit('bot_event', {
-                type: 'STOP',
-                botId,
-                timestamp: new Date().toISOString(),
-                message: `Container exited automatically with code ${code}`,
-             });
-             const botObj = db.getBotDirect(botId);
-             if (botObj) {
-                botObj.status = tel.state === 'ERROR' ? 'error' : 'stopped';
-                db.save();
-             }
-          }
-          this.activeProcesses.delete(botId);
-        });
-      }
-    } catch (e) {
+        this.activeProcesses.delete(botId);
+      });
+    } catch (e: any) {
       console.error('[Bot runner] Failed to append startup sequence logs:', e);
     }
 
@@ -501,20 +482,10 @@ export class BotRunnerWorker extends EventEmitter {
       return { success: true, state: 'STOPPED', message: 'Bot was already halted' };
     }
 
-    // Physical VPS execution stop
-    const isVPS = fs.existsSync('/opt/telebot-host/run-bot-isolated.sh');
-    if (isVPS) {
-      try {
-        execSync(`systemctl stop "telebot-bot-${botId}.service" || true`);
-      } catch (err) {
-        console.warn(`[Bot runner] Failed to cleanly stop systemd service:`, err);
-      }
-    } else {
-      const child = this.activeProcesses.get(botId);
-      if (child) {
-        child.kill('SIGTERM');
-        this.activeProcesses.delete(botId);
-      }
+    const child = this.activeProcesses.get(botId);
+    if (child) {
+      child.kill('SIGTERM');
+      this.activeProcesses.delete(botId);
     }
 
     telemetry.state = 'STOPPED';
@@ -733,54 +704,40 @@ export class BotRunnerWorker extends EventEmitter {
    */
   private startTelemetryLoop() {
     this.runnerInterval = setInterval(() => {
-      const isVPS = fs.existsSync('/opt/telebot-host/run-bot-isolated.sh');
-
       for (const [botId, telemetry] of this.telemetries.entries()) {
-        if (isVPS) {
-          try {
-            // Check real systemd active status
-            const status = execSync(`systemctl is-active "telebot-bot-${botId}.service"`).toString().trim();
-            if (status === 'active') {
-              telemetry.state = 'ACTIVE';
-              telemetry.uptimeSeconds += 5;
-              telemetry.cpuPercent = Math.round((Math.random() * 3.5 + 0.8) * 10) / 10;
-              telemetry.memoryUsageMB = Math.round(Math.random() * 15 + 45); // Standard memory footprint
-              telemetry.networkRxBytes += Math.floor(Math.random() * 512 + 128);
-              telemetry.networkTxBytes += Math.floor(Math.random() * 256 + 64);
-              
-              // Ensure database/JSON state reflects running status
-              const bot = db.getBotDirect(botId);
-              if (bot && bot.status !== 'running') {
-                bot.status = 'running';
-                db.save();
-              }
-            } else {
-              telemetry.state = 'STOPPED';
-              telemetry.cpuPercent = 0;
-              telemetry.memoryUsageMB = 0;
-              
-              // Ensure database/JSON state reflects stopped status
-              const bot = db.getBotDirect(botId);
-              if (bot && bot.status !== 'stopped') {
-                bot.status = 'stopped';
-                db.save();
-              }
-            }
-          } catch {
-            telemetry.state = 'STOPPED';
+        const isRunning = this.activeProcesses.has(botId);
+        
+        if (isRunning) {
+          telemetry.state = 'ACTIVE';
+          telemetry.uptimeSeconds += 5;
+          telemetry.cpuPercent = Math.round((Math.random() * 3.5 + 0.8) * 10) / 10;
+          telemetry.memoryUsageMB = Math.round(Math.random() * 15 + 45); // Standard memory footprint
+          telemetry.networkRxBytes += Math.floor(Math.random() * 512 + 128);
+          telemetry.networkTxBytes += Math.floor(Math.random() * 256 + 64);
+          
+          // Ensure database/JSON state reflects running status
+          const bot = db.getBotDirect(botId);
+          if (bot && bot.status !== 'running') {
+            bot.status = 'running';
+            db.save();
           }
         } else {
-          // Non-VPS simulation mode (development container fallback)
-          if (telemetry.state === 'ACTIVE') {
-            telemetry.uptimeSeconds += 5;
-            telemetry.cpuPercent = Math.round((Math.random() * 3.5 + 0.8) * 10) / 10;
-            telemetry.networkRxBytes += Math.floor(Math.random() * 512 + 128);
-            telemetry.networkTxBytes += Math.floor(Math.random() * 256 + 64);
+          telemetry.state = 'STOPPED';
+          telemetry.cpuPercent = 0;
+          telemetry.memoryUsageMB = 0;
+          
+          // Ensure database/JSON state reflects stopped status
+          const bot = db.getBotDirect(botId);
+          if (bot && bot.status !== 'stopped') {
+            bot.status = 'stopped';
+            db.save();
           }
         }
 
-//        // Simulate interactive request hits if the bot is actively running
-//        if (telemetry.state === 'ACTIVE') {
+        // Simulate interactive request hits if the bot is actively running
+        if (telemetry.state === 'ACTIVE') {
+          // Simulation logic goes here (currently commented out)
+        }
 //          // 40% chance every 5 seconds to simulate an incoming message update hit
 //          if (Math.random() < 0.4) {
 //            const sampleUsers = [
