@@ -1717,6 +1717,14 @@ class RelationalDatabase {
 
     // Real physical file write on VPS for execution isolated cgroups run
     try {
+      const user = this.getAllUsers().find(u => u.id === userId);
+      const safeUserName = user?.name ? user.name.replace(/[^a-zA-Z0-9_-]/g, '_') : userId;
+      const safeBotName = bot.name ? bot.name.replace(/[^a-zA-Z0-9_-]/g, '_') : botId;
+      const workspaceDir = path.join(process.cwd(), 'vps_workspaces', safeUserName, safeBotName);
+      const workspaceFilePath = path.join(workspaceDir, filePath);
+      fs.mkdirSync(path.dirname(workspaceFilePath), { recursive: true });
+      fs.writeFileSync(workspaceFilePath, content, 'utf-8');
+
       const botsBaseDir = '/var/telebot-data/bots';
       if (fs.existsSync(botsBaseDir)) {
         const botDir = path.join(botsBaseDir, botId);
@@ -1748,15 +1756,22 @@ class RelationalDatabase {
     if (!bot) throw new Error('Unauthorized');
 
     this.data.files = this.data.files.filter(
-      (f) => !(f.bot_id === botId && f.user_id === userId && f.file_path === filePath)
+      (f) => !(f.bot_id === botId && (f.file_path === filePath || f.file_name === filePath))
     );
 
-    // Real physical file delete on VPS
+    // Real physical file delete on VPS workspace
     try {
-      const botsBaseDir = '/var/telebot-data/bots';
-      const fullDiskPath = path.join(botsBaseDir, botId, filePath);
+      const user = this.getAllUsers().find(u => u.id === userId);
+      const safeUserName = user?.name ? user.name.replace(/[^a-zA-Z0-9_-]/g, '_') : userId;
+      const safeBotName = bot.name ? bot.name.replace(/[^a-zA-Z0-9_-]/g, '_') : botId;
+      const fullDiskPath = path.join(process.cwd(), 'vps_workspaces', safeUserName, safeBotName, filePath);
       if (fs.existsSync(fullDiskPath)) {
-        fs.unlinkSync(fullDiskPath);
+        const stat = fs.statSync(fullDiskPath);
+        if (stat.isDirectory()) {
+          fs.rmSync(fullDiskPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(fullDiskPath);
+        }
       }
     } catch (diskErr) {
       console.warn('[VPS Storage Warning] Failed to delete bot file from VPS storage:', diskErr);

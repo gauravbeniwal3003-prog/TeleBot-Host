@@ -57,6 +57,11 @@ export class VPSWorkerClient {
     return botRunnerWorker.renameVPSFile(botId, oldPath, newPath);
   }
 
+  public async deleteVPSFile(botId: string, filePath: string): Promise<boolean> {
+    this.authenticate();
+    return botRunnerWorker.deleteVPSFile(botId, filePath);
+  }
+
   /**
    * Provision container sandbox for a new or updated bot
    */

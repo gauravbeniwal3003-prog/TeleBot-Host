@@ -749,7 +749,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                     <div className="p-2 bg-sky-50 text-[#0088cc] rounded-lg shrink-0">
                       <FileCode className="w-4 h-4" />
                     </div>
-                    {fileToRename?.id === file.id ? (
+                    {fileToRename?.filePath === file.filePath ? (
                       <div className="flex items-center gap-2 flex-1 max-w-sm">
                         <input 
                           type="text" 
@@ -773,7 +773,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {fileToDelete?.id === file.id ? (
+                    {fileToDelete?.filePath === file.filePath ? (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setFileToDelete(null)}

@@ -54,6 +54,26 @@ export class ErrorTranslator {
 
     const text = rawMessage.trim();
 
+    // Ignore intermediate traceback lines and code snippets that are not actual errors
+    if (
+      text.startsWith('File "') ||
+      text.startsWith('^^^^') ||
+      text.startsWith('return await') ||
+      text === '^' ||
+      (text.startsWith('raise ') && !text.includes('Error')) ||
+      text === 'Traceback (most recent call last):'
+    ) {
+      return {
+        isError: false,
+        errorCategory: 'runtime_exception',
+        friendlyTitle: 'Traceback Info',
+        friendlyMessage: '',
+        suggestedFix: '',
+        severity: 'info',
+        technicalDetails: { rawError: text },
+      };
+    }
+
     // 1. Missing Python Package / ModuleNotFoundError / ImportError
     if (
       text.includes('ModuleNotFoundError') ||
@@ -200,21 +220,25 @@ export class ErrorTranslator {
     if (
       text.includes('NetworkError') ||
       text.includes('TimedOut') ||
+      text.includes('ConnectTimeout') ||
+      text.includes('ConnectError') ||
+      text.includes('httpcore.ConnectTimeout') ||
       text.includes('httpx.ConnectTimeout') ||
       text.includes('ConnectionRefusedError') ||
       text.includes('RemoteDisconnected') ||
-      text.includes('telegram.error.NetworkError')
+      text.includes('telegram.error.NetworkError') ||
+      text.includes('telegram.error.TimedOut')
     ) {
       return {
         isError: true,
         errorCategory: 'network_timeout',
-        friendlyTitle: 'Temporary Network Interruption',
-        friendlyMessage: 'Bot lost connection to Telegram servers temporarily. The host will automatically reconnect.',
-        suggestedFix: 'No action usually needed; the runner auto-reconnects with exponential backoff. If persistent, check Telegram API status.',
+        friendlyTitle: 'Temporary Network Connection Timeout',
+        friendlyMessage: 'Bot encountered a network timeout while connecting to the Telegram API servers.',
+        suggestedFix: 'Check that your VPS firewall or outbound network permits HTTPS traffic to api.telegram.org:443. In python-telegram-bot or aiogram, consider increasing request timeout or using a proxy.',
         severity: 'warning',
         technicalDetails: {
           rawError: text,
-          exceptionType: 'NetworkError / Timeout',
+          exceptionType: 'NetworkError / ConnectTimeout',
           suggestedCommand: 'curl -v https://api.telegram.org',
           stackTrace: text,
         },

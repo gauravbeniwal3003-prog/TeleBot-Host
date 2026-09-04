@@ -422,7 +422,7 @@ filesRouter.post('/:botId/files/replace', (req: Request, res: Response): void =>
 });
 
 // 7. DELETE FILE
-filesRouter.delete('/:botId/files', (req: Request, res: Response): void => {
+filesRouter.delete('/:botId/files', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.id;
     const botId = req.params.botId;
@@ -436,7 +436,16 @@ filesRouter.delete('/:botId/files', (req: Request, res: Response): void => {
     const cleanPath = StorageManager.sanitizeFilePath(filePath);
     const bot = db.getBotById(botId, userId);
     
+    // Delete from DB and disk
     db.deleteBotFile(botId, userId, cleanPath);
+
+    // Also explicitly delete from VPS workspace
+    try {
+      await vpsWorkerClient.deleteVPSFile(botId, cleanPath);
+    } catch (vpsErr) {
+      console.error('Failed to delete VPS file directly:', vpsErr);
+    }
+
     const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
 
     db.logActivity({

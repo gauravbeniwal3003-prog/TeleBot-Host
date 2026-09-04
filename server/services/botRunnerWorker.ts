@@ -233,6 +233,25 @@ export class BotRunnerWorker extends EventEmitter {
     }
   }
 
+  public deleteVPSFile(botId: string, filePath: string): boolean {
+    const basePath = this.getWorkspacePath(botId);
+    const fullPath = path.join(basePath, filePath);
+    if (!fullPath.startsWith(basePath) || !fs.existsSync(fullPath)) return false;
+    
+    try {
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(fullPath);
+      }
+      return true;
+    } catch (e) {
+      console.error(`[VPS Delete] Failed to remove ${fullPath}:`, e);
+      return false;
+    }
+  }
+
   /**
    * Start bot container in an active slot
    */
@@ -423,8 +442,11 @@ export class BotRunnerWorker extends EventEmitter {
         lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'info', line));
       });
 
+      let stderrBuffer = '';
       child.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n').filter((l: string) => l.trim().length > 0);
+        const chunk = data.toString();
+        stderrBuffer += chunk;
+        const lines = chunk.split('\n').filter((l: string) => l.trim().length > 0);
         lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'error', line));
       });
 
@@ -432,6 +454,10 @@ export class BotRunnerWorker extends EventEmitter {
         if (code === 0) {
           LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Bot process completed normally (exit code 0).`);
         } else {
+          // If we captured an error in stderrBuffer, check if a specific root cause can be highlighted
+          if (stderrBuffer.includes('ConnectTimeout') || stderrBuffer.includes('httpcore.ConnectTimeout') || stderrBuffer.includes('httpx.ConnectTimeout')) {
+            LogManager.appendLog(botId, userId, 'error', `[Terminal] [NETWORK ERROR] Telegram API Connection Timeout. The bot could not reach Telegram servers over HTTPS. Ensure outbound connection to https://api.telegram.org is unrestricted.`);
+          }
           LogManager.appendLog(botId, userId, 'error', `[Terminal] [PROCESS CRASH] Bot exited with error code ${code}. Please inspect the error traceback above.`);
         }
 
