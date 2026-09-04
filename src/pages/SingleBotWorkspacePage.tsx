@@ -421,7 +421,8 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     e.preventDefault();
     setSavingEnv(true);
     try {
-      const filteredVars = envVars.filter(ev => ev.key.trim() !== '');
+      // Only persist non-empty keys and non-empty values so leaving token empty preserves script hardcoded token
+      const filteredVars = envVars.filter(ev => ev.key.trim() !== '' && ev.value.trim() !== '');
       const formattedVars = filteredVars.map((ev, idx) => ({
         id: `env_${Date.now()}_${idx}`,
         key: ev.key.trim().toUpperCase(),
@@ -430,7 +431,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       }));
       const updatedBot = await api.updateBotEnvVars(bot.id, formattedVars);
       setBot(updatedBot);
-      addToast('success', 'Environment variables saved successfully');
+      addToast('success', 'Environment variables updated successfully');
       refreshBots();
     } catch (e: any) {
       addToast('error', e.message || 'Failed to save environment variables');
@@ -831,10 +832,14 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
 
         {/* Environment Variables Card */}
         <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs">
-          <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Environment Variables (Optional)</h3>
-          <p className="text-xs text-slate-500 mb-5">
-            Store your secrets securely here instead of hard-coding them in your Python files. 
-            They will be loaded as environment variables on startup.
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <h3 className="text-base sm:text-lg font-black text-slate-900">Environment Variables (Optional)</h3>
+            <span className="text-[11px] bg-sky-50 text-[#0088cc] border border-sky-200 px-2.5 py-0.5 rounded-full font-bold">
+              Default is Empty (Token inside Python file)
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+            It is completely your choice: you can keep your Telegram Bot Token hardcoded directly inside your Python file (e.g. <code className="text-sky-600 bg-sky-50 px-1.5 py-0.5 rounded font-mono text-[11px]">main.py</code>), or define it here as an environment variable. If left empty, your bot will read the token directly from your file without any conflict.
           </p>
 
           <form onSubmit={handleSaveEnvVars} className="space-y-4 max-w-2xl">

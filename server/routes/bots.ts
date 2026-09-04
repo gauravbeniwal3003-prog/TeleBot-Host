@@ -133,7 +133,7 @@ botsRouter.post('/', (req: Request, res: Response): void => {
       name,
       username,
       framework,
-      token: token || 'YOUR_BOT_TOKEN',
+      token: (token && typeof token === 'string') ? token.trim() : '',
       gitRepoUrl,
       entryPoint,
       hasDatabase,

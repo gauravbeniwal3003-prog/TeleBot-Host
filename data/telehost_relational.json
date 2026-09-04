@@ -9,8 +9,8 @@
       "role": "admin",
       "status": "active",
       "is_verified": true,
-      "created_at": "2026-08-30T08:40:53.236Z",
-      "updated_at": "2026-08-30T08:40:53.236Z"
+      "created_at": "2026-08-30T08:40:53.236+00:00",
+      "updated_at": "2026-08-30T08:40:53.236+00:00"
     },
     {
       "id": "usr_73237977",
@@ -32,8 +32,8 @@
       "telegram_username": "@gaurav_supabase",
       "role": "user",
       "is_verified": true,
-      "created_at": "2026-08-30T09:08:48.822Z",
-      "updated_at": "2026-08-30T09:08:48.822Z",
+      "created_at": "2026-08-30T09:08:48.822+00:00",
+      "updated_at": "2026-08-30T09:08:48.822+00:00",
       "status": "active"
     },
     {
@@ -44,8 +44,8 @@
       "telegram_username": "@tester",
       "role": "user",
       "is_verified": true,
-      "created_at": "2026-08-31T13:07:19.263Z",
-      "updated_at": "2026-08-31T13:07:19.263Z",
+      "created_at": "2026-08-31T13:07:19.263+00:00",
+      "updated_at": "2026-08-31T13:07:19.263+00:00",
       "status": "active"
     },
     {
@@ -56,8 +56,8 @@
       "telegram_username": "@gaurav",
       "role": "user",
       "is_verified": true,
-      "created_at": "2026-09-02T03:59:28.139Z",
-      "updated_at": "2026-09-02T03:59:28.139Z",
+      "created_at": "2026-09-02T03:59:28.139+00:00",
+      "updated_at": "2026-09-02T03:59:28.139+00:00",
       "status": "active"
     }
   ],
@@ -66,36 +66,36 @@
       "id": "proj_admin_default",
       "user_id": "usr_super_admin_001",
       "name": "Admin Workspace",
-      "created_at": "2026-08-30T08:40:53.236Z",
-      "updated_at": "2026-08-30T08:40:53.236Z"
+      "created_at": "2026-08-30T08:40:53.236+00:00",
+      "updated_at": "2026-08-30T08:40:53.236+00:00"
     },
     {
       "id": "proj_73651666",
       "user_id": "usr_73237977",
       "name": "My Telegram Bots",
-      "created_at": "2026-08-30T08:42:49.830Z",
-      "updated_at": "2026-08-30T08:42:49.830Z"
+      "created_at": "2026-08-30T08:42:49.83+00:00",
+      "updated_at": "2026-08-30T08:42:49.83+00:00"
     },
     {
       "id": "proj_94428846",
       "user_id": "usr_76601267",
       "name": "My Telegram Bots",
-      "created_at": "2026-08-30T09:08:48.822Z",
-      "updated_at": "2026-08-30T09:08:48.822Z"
+      "created_at": "2026-08-30T09:08:48.822+00:00",
+      "updated_at": "2026-08-30T09:08:48.822+00:00"
     },
     {
       "id": "proj_57333591",
       "user_id": "usr_26098499",
       "name": "My Telegram Bots",
-      "created_at": "2026-08-31T13:07:19.263Z",
-      "updated_at": "2026-08-31T13:07:19.263Z"
+      "created_at": "2026-08-31T13:07:19.263+00:00",
+      "updated_at": "2026-08-31T13:07:19.263+00:00"
     },
     {
       "id": "proj_25619917",
       "user_id": "usr_33202495",
       "name": "My Telegram Bots",
-      "created_at": "2026-09-02T03:59:28.139Z",
-      "updated_at": "2026-09-02T03:59:28.139Z"
+      "created_at": "2026-09-02T03:59:28.139+00:00",
+      "updated_at": "2026-09-02T03:59:28.139+00:00"
     }
   ],
   "subscriptions": [
@@ -112,29 +112,31 @@
       "total_bot_slots": 20,
       "ram_limit_mb": 8192,
       "storage_limit_gb": 100,
-      "created_at": "2026-08-30T08:40:53.236Z",
-      "updated_at": "2026-08-30T08:40:53.236Z"
+      "created_at": "2026-08-30T08:40:53.236+00:00",
+      "updated_at": "2026-08-30T08:40:53.236+00:00",
+      "trial_started": false,
+      "trial_started_at": null
     },
     {
       "id": "sub_843937",
       "user_id": "usr_73237977",
       "project_id": "proj_73651666",
-      "plan_id": "starter",
-      "plan_name": "Starter Bot Plan (₹49/mo)",
+      "plan_id": "dynamic_custom",
+      "plan_name": "Custom VPS (1 Bots)",
       "status": "active",
-      "trial_started": true,
-      "trial_started_at": "2026-08-31T01:47:52.533Z",
-      "start_date": "2026-09-02T04:26:00.000Z",
-      "expiry_date": "2026-10-02T04:26:00.000Z",
+      "trial_started": false,
+      "trial_started_at": null,
+      "start_date": "2026-08-31T01:47:52.533Z",
+      "expiry_date": "2026-10-02T04:31:13.734Z",
       "auto_renew": true,
       "total_bot_slots": 3,
       "active_bot_count": 1,
       "ram_limit_mb": 512,
-      "storage_limit_gb": 2,
+      "storage_limit_gb": 3,
       "db_storage_mb": 200,
       "max_file_size_mb": 5,
-      "created_at": "2026-08-30T08:42:49.830Z",
-      "updated_at": "2026-09-02T04:26:00.000Z"
+      "created_at": "2026-08-30T08:42:49.83+00:00",
+      "updated_at": "2026-09-02T04:31:13.734+00:00"
     },
     {
       "id": "sub_107579",
@@ -145,7 +147,7 @@
       "status": "trial",
       "trial_started": false,
       "trial_started_at": null,
-      "start_date": "",
+      "start_date": "2026-08-30T09:08:48.822+00:00",
       "expiry_date": "",
       "auto_renew": false,
       "total_bot_slots": 1,
@@ -153,8 +155,8 @@
       "storage_limit_gb": 0.05,
       "db_storage_mb": 50,
       "max_file_size_mb": 5,
-      "created_at": "2026-08-30T09:08:48.822Z",
-      "updated_at": "2026-08-30T09:08:48.822Z"
+      "created_at": "2026-08-30T09:08:48.822+00:00",
+      "updated_at": "2026-08-30T09:08:48.822+00:00"
     },
     {
       "id": "sub_983427",
@@ -165,7 +167,7 @@
       "status": "trial",
       "trial_started": false,
       "trial_started_at": null,
-      "start_date": "",
+      "start_date": "2026-08-31T13:07:19.263+00:00",
       "expiry_date": "",
       "auto_renew": false,
       "total_bot_slots": 3,
@@ -174,8 +176,8 @@
       "storage_limit_gb": 0.05,
       "db_storage_mb": 50,
       "max_file_size_mb": 5,
-      "created_at": "2026-08-31T13:07:19.263Z",
-      "updated_at": "2026-08-31T13:07:19.263Z"
+      "created_at": "2026-08-31T13:07:19.263+00:00",
+      "updated_at": "2026-08-31T13:07:19.263+00:00"
     },
     {
       "id": "sub_972114",
@@ -195,8 +197,8 @@
       "storage_limit_gb": 0.05,
       "db_storage_mb": 50,
       "max_file_size_mb": 5,
-      "created_at": "2026-09-02T03:59:28.139Z",
-      "updated_at": "2026-09-02T04:00:52.759Z"
+      "created_at": "2026-09-02T03:59:28.139+00:00",
+      "updated_at": "2026-09-02T04:00:52.759+00:00"
     }
   ],
   "bots": [
@@ -221,8 +223,8 @@
       "restart_count": 0,
       "last_deployed_at": "2026-09-02T03:59:50.791Z",
       "last_started_at": "2026-09-02T04:00:52.759Z",
-      "created_at": "2026-09-02T03:59:50.791Z",
-      "updated_at": "2026-09-02T04:00:52.759Z",
+      "created_at": "2026-09-02T03:59:50.791+00:00",
+      "updated_at": "2026-09-02T04:00:52.759+00:00",
       "last_error": "ModuleNotFoundError: No module named 'telegram'",
       "last_error_friendly": "Bot stopped because a required Python package (telegram) is missing.",
       "last_error_technical": "{\"rawError\":\"ModuleNotFoundError: No module named 'telegram'\",\"exceptionType\":\"ModuleNotFoundError\",\"suggestedCommand\":\"pip install telegram\",\"stackTrace\":\"ModuleNotFoundError: No module named 'telegram'\"}"
@@ -235,7 +237,7 @@
       "username": "@tracexfreee_bot",
       "framework": "telebot",
       "version": "telebot v24.2 (cgroups v2)",
-      "status": "stopped",
+      "status": "running",
       "is_active_slot": true,
       "entry_point": "main.py",
       "has_database": false,
@@ -248,23 +250,12 @@
       "restart_count": 0,
       "last_deployed_at": "2026-08-31T01:41:41.270Z",
       "last_started_at": "2026-08-31T01:47:52.533Z",
-      "created_at": "2026-08-31T01:41:41.270Z",
-      "updated_at": "2026-09-02T04:26:00.000Z",
+      "created_at": "2026-08-31T01:41:41.27+00:00",
+      "updated_at": "2026-09-04T15:19:17.402+00:00",
       "last_stopped_at": "2026-08-31T01:49:18.564Z"
     }
   ],
   "env_vars": [
-    {
-      "id": "env_1788140501270_1",
-      "bot_id": "bot_11193",
-      "project_id": "proj_73651666",
-      "user_id": "usr_73237977",
-      "key": "BOT_TOKEN",
-      "value": "YOUR_BOT_TOKEN",
-      "is_secret": true,
-      "created_at": "2026-08-31T01:41:41.270Z",
-      "updated_at": "2026-08-31T01:41:41.270Z"
-    },
     {
       "id": "env_1788140501270_2",
       "bot_id": "bot_11193",

@@ -1070,35 +1070,44 @@ class RelationalDatabase {
     };
 
     // Store secure environment variables
-    const envVars: DBBotEnvVar[] = [
-      {
+    const envVars: DBBotEnvVar[] = [];
+    const trimmedToken = (data.token && typeof data.token === 'string') ? data.token.trim() : '';
+
+    if (trimmedToken && trimmedToken !== 'YOUR_BOT_TOKEN' && trimmedToken !== 'YOUR_BOT_TOKEN_HERE') {
+      envVars.push({
         id: `env_${Date.now()}_1`,
         bot_id: botId,
         project_id: projId,
         user_id: userId,
         key: 'BOT_TOKEN',
-        value: data.token,
+        value: trimmedToken,
         is_secret: true,
         created_at: now,
         updated_at: now,
-      },
-      {
-        id: `env_${Date.now()}_2`,
-        bot_id: botId,
-        project_id: projId,
-        user_id: userId,
-        key: 'ENVIRONMENT',
-        value: 'production',
-        is_secret: false,
-        created_at: now,
-        updated_at: now,
-      },
-    ];
+      });
+    }
+
+    envVars.push({
+      id: `env_${Date.now()}_2`,
+      bot_id: botId,
+      project_id: projId,
+      user_id: userId,
+      key: 'ENVIRONMENT',
+      value: 'production',
+      is_secret: false,
+      created_at: now,
+      updated_at: now,
+    });
 
     this.data.bots.unshift(bot);
     this.data.env_vars.push(...envVars);
 
     // Provision isolated container sandbox via Worker Client
+    const sandboxEnv: Record<string, string> = { ENVIRONMENT: 'production' };
+    if (trimmedToken && trimmedToken !== 'YOUR_BOT_TOKEN' && trimmedToken !== 'YOUR_BOT_TOKEN_HERE') {
+      sandboxEnv.BOT_TOKEN = trimmedToken;
+    }
+
     vpsWorkerClient.provisionSandbox({
       botId: bot.id,
       userId: bot.user_id,
@@ -1108,7 +1117,7 @@ class RelationalDatabase {
       entryPoint: bot.entry_point,
       memoryLimitMB: bot.memory_limit_mb,
       storageQuotaMB: sub?.db_storage_mb || 250,
-      envVars: { BOT_TOKEN: data.token, ENVIRONMENT: 'production' },
+      envVars: sandboxEnv,
     }).catch((e) => console.error('Failed to provision sandbox:', e));
 
     if (canAutoRun) {
@@ -1230,23 +1239,29 @@ class RelationalDatabase {
     if (updates.framework !== undefined) bot.framework = updates.framework;
     bot.updated_at = new Date().toISOString();
 
-    if (updates.token) {
+    if (updates.token !== undefined) {
+      const trimmed = updates.token.trim();
       const envs = this.getBotEnvVars(botId, userId);
       const tokenEnv = envs.find((e) => e.key === 'TELEGRAM_TOKEN' || e.key === 'BOT_TOKEN');
-      if (tokenEnv) {
-        tokenEnv.value = updates.token;
-        tokenEnv.updated_at = new Date().toISOString();
-      } else {
-        this.data.env_vars.push({
-          id: `env_${Date.now()}`,
-          bot_id: botId,
-          user_id: userId,
-          key: 'TELEGRAM_TOKEN',
-          value: updates.token,
-          is_secret: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        });
+      if (trimmed) {
+        if (tokenEnv) {
+          tokenEnv.value = trimmed;
+          tokenEnv.updated_at = new Date().toISOString();
+        } else {
+          this.data.env_vars.push({
+            id: `env_${Date.now()}`,
+            bot_id: botId,
+            user_id: userId,
+            key: 'TELEGRAM_TOKEN',
+            value: trimmed,
+            is_secret: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+      } else if (tokenEnv) {
+        // Token was cleared - remove env variable so bot reads directly from the Python file
+        this.data.env_vars = this.data.env_vars.filter((e) => e.id !== tokenEnv.id);
       }
     }
 
@@ -1597,11 +1612,13 @@ class RelationalDatabase {
     const now = new Date().toISOString();
     const existingVars = this.getBotEnvVars(botId, userId);
 
-    // Replace env vars for this bot
+    // Replace env vars for this bot - only keep non-empty values
     this.data.env_vars = this.data.env_vars.filter((e) => e.bot_id !== botId);
 
-    const newVars: DBBotEnvVar[] = vars.map((v, i) => {
-      let finalValue = v.value;
+    const validVars = vars.filter(v => v.key && v.key.trim() !== '' && v.value && v.value.trim() !== '');
+
+    const newVars: DBBotEnvVar[] = validVars.map((v, i) => {
+      let finalValue = v.value.trim();
       if (finalValue === '••••••••••••••••') {
         const existing = existingVars.find((e) => e.key === v.key.trim().toUpperCase());
         if (existing) finalValue = existing.value;

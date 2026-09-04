@@ -273,15 +273,19 @@ export const DashboardOverviewPage: React.FC<DashboardOverviewPageProps> = ({ na
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">Telegram Bot Token (Optional)</label>
+                <label className="text-[11px] font-bold text-slate-600 uppercase tracking-wide block">
+                  Telegram Bot Token (Optional — Default is Empty)
+                </label>
                 <input
                   type="text"
-                  placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsT"
+                  placeholder="Leave empty if token is inside your Python file (e.g. main.py)"
                   value={botToken}
                   onChange={(e) => setBotToken(e.target.value)}
                   className="w-full border border-slate-300 rounded-xl px-3.5 py-3 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/30 text-slate-900"
                 />
-                <p className="text-[10px] text-slate-400">Optional. You can provide this later in your code or via env vars.</p>
+                <p className="text-[10px] text-slate-500">
+                  Optional. Default is empty. Empty means the token is configured directly inside your Python file.
+                </p>
               </div>
 
               <button

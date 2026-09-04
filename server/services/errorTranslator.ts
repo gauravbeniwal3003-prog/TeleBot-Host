@@ -54,14 +54,23 @@ export class ErrorTranslator {
 
     const text = rawMessage.trim();
 
-    // Ignore intermediate traceback lines and code snippets that are not actual errors
+    // Ignore intermediate traceback lines, source code snippets, and standard logs that are not actual errors
     if (
       text.startsWith('File "') ||
       text.startsWith('^^^^') ||
       text.startsWith('return await') ||
+      text.startsWith('await ') ||
+      text.startsWith('return ') ||
+      text.startsWith('def ') ||
+      text.startsWith('async ') ||
+      text.startsWith('raise ') ||
+      text.startsWith('result =') ||
+      text.startsWith('The above exception') ||
+      text.startsWith('During handling of') ||
       text === '^' ||
-      (text.startsWith('raise ') && !text.includes('Error')) ||
-      text === 'Traceback (most recent call last):'
+      text.startsWith('Traceback') ||
+      text.includes('INFO - HTTP Request:') ||
+      text.includes('Network Retry Loop')
     ) {
       return {
         isError: false,
@@ -115,7 +124,7 @@ export class ErrorTranslator {
         errorCategory: 'invalid_token',
         friendlyTitle: 'Invalid Telegram Bot Token',
         friendlyMessage: 'Bot could not connect to Telegram because the API Bot Token is invalid, expired, or revoked.',
-        suggestedFix: 'Open Environment Variables, verify your BOT_TOKEN against @BotFather on Telegram, and save again.',
+        suggestedFix: 'Verify your bot token against @BotFather on Telegram. You can set it in your Python script directly (e.g. main.py) or in Environment Variables under Configuration.',
         severity: 'critical',
         technicalDetails: {
           rawError: text,
@@ -307,18 +316,30 @@ export class ErrorTranslator {
       };
     }
 
-    // 11. Generic Python Runtime Exception
-    const lineMatch = text.match(/line (\d+)/i);
+    // 11. Generic Python Runtime Exception - Only if it explicitly looks like an Exception class
     const excMatch = text.match(/([a-zA-Z0-9_]+Error|[a-zA-Z0-9_]+Exception):\s*([^\n\r]+)/i);
-    const excType = excMatch ? excMatch[1] : 'RuntimeError';
-    const excDetail = excMatch ? excMatch[2] : text.slice(0, 120);
+    if (!excMatch) {
+      return {
+        isError: false,
+        errorCategory: 'runtime_exception',
+        friendlyTitle: '',
+        friendlyMessage: '',
+        suggestedFix: '',
+        severity: 'info',
+        technicalDetails: { rawError: text },
+      };
+    }
+
+    const lineMatch = text.match(/line (\d+)/i);
+    const excType = excMatch[1];
+    const excDetail = excMatch[2] || text.slice(0, 120);
 
     return {
       isError: true,
       errorCategory: 'runtime_exception',
-      friendlyTitle: 'Bot Stopped Unexpectedly',
-      friendlyMessage: `Bot encountered a runtime error: "${excDetail}".`,
-      suggestedFix: 'Inspect the technical details and traceback below to identify the exact line in your Python script.',
+      friendlyTitle: `${excType} Encountered`,
+      friendlyMessage: `Bot encountered a ${excType}: "${excDetail}".`,
+      suggestedFix: 'Inspect the technical traceback details in the console to locate the issue in your Python script.',
       severity: 'error',
       technicalDetails: {
         rawError: text,

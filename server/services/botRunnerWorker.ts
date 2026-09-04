@@ -405,19 +405,25 @@ export class BotRunnerWorker extends EventEmitter {
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: ${commandToRun}`);
 
       const envDict: Record<string, string> = { ...process.env, PYTHONUNBUFFERED: '1' };
-      if (envVars && envVars.length > 0) {
+      const validEnvVars = (envVars || []).filter((ev) => {
+        const val = ev.value ? ev.value.trim() : '';
+        return val.length > 0 && val !== 'YOUR_BOT_TOKEN' && val !== 'YOUR_BOT_TOKEN_HERE';
+      });
+
+      if (validEnvVars.length > 0) {
         LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Loaded environment variables:`);
-        for (const ev of envVars) {
+        for (const ev of validEnvVars) {
           const key = ev.key;
-          let val = ev.value || '';
-          envDict[key] = val;
+          const rawVal = ev.value.trim();
+          envDict[key] = rawVal;
+          let displayVal = rawVal;
           if (key.includes('TOKEN') || key.includes('SECRET') || key.includes('PASSWORD') || key.includes('KEY')) {
-            val = val.length > 10 ? val.substring(0, 8) + '***********************' : '********';
+            displayVal = displayVal.length > 10 ? displayVal.substring(0, 8) + '***********************' : '********';
           }
-          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO]   • ${key} = ${val}`);
+          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO]   • ${key} = ${displayVal}`);
         }
       } else {
-        LogManager.appendLog(botId, userId, 'warn', `[Terminal] [WARN] No environment variables configured. If your bot needs TELEGRAM_TOKEN, add it under Configuration tab.`);
+        LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Environment variables: None (Token read directly from Python script).`);
       }
 
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Pre-flight checks passed. Booting bot engine...`);
