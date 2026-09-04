@@ -97,7 +97,7 @@ class ApiService {
       return data;
     } catch (err: any) {
       if (err instanceof TypeError && err.message?.toLowerCase().includes('fetch')) {
-        throw new Error('Connection Failed: Could not reach backend API server. If deployed on Vercel, ensure VITE_API_URL is set or backend API proxy is configured.');
+        throw new Error('Connection Failed: Could not reach backend API server. If on Vercel, please check if your VPS firewall permits port 3000 or configure Vercel proxy rewrite.');
       }
       throw err;
     }
