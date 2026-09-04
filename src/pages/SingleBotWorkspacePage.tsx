@@ -20,7 +20,14 @@ import {
   Sliders,
   Database,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Package,
+  Zap,
+  CheckCircle2,
+  Wrench,
+  TerminalSquare,
+  Save,
+  Info
 } from 'lucide-react';
 
 interface SingleBotWorkspacePageProps {
@@ -52,6 +59,21 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   const [envVars, setEnvVars] = useState([{ key: 'TELEGRAM_TOKEN', value: '' }]);
   const [savingEnv, setSavingEnv] = useState(false);
 
+  // Custom Start Command states
+  const [startCommand, setStartCommand] = useState('');
+  const [isSavingStartCommand, setIsSavingStartCommand] = useState(false);
+
+  // Groq AI Package Manager states
+  const [isScanningPackages, setIsScanningPackages] = useState(false);
+  const [detectedPackages, setDetectedPackages] = useState<Array<{ name: string; description: string; importName: string }>>([]);
+  const [customPackageInput, setCustomPackageInput] = useState('');
+  const [isInstallingPackages, setIsInstallingPackages] = useState(false);
+  const [installOutput, setInstallOutput] = useState<string | null>(null);
+
+  // Groq AI Diagnosis states
+  const [isDiagnosingWithGroq, setIsDiagnosingWithGroq] = useState(false);
+  const [groqDiagnosis, setGroqDiagnosis] = useState<any | null>(null);
+
   // VPS Start Verification states
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [startStep, setStartStep] = useState(0);
@@ -71,6 +93,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       const found = bots.find(b => b.id === botId);
       if (found) {
         setBot(found);
+        setStartCommand(found.startCommand || `python3 -u ${found.entryPoint || 'main.py'}`);
         if (found.envVars && found.envVars.length > 0) {
           setEnvVars(found.envVars.map(ev => ({ key: ev.key, value: ev.value })));
         } else {
@@ -233,7 +256,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       setStartStep(4);
       
       // Step 4: Allocating resources & Spawning Systemd service
-      const updated = await api.updateBotStatus(bot.id, 'start');
+      const updated = await api.updateBotStatus(bot.id, 'start', startCommand);
       setBot(updated);
       
       await new Promise(r => setTimeout(r, 800));
@@ -282,6 +305,115 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       // Set status to error on frontend
       setBot(prev => prev ? { ...prev, status: 'error' } : null);
       addToast('error', err.message || 'Failed to start bot');
+    }
+  };
+
+  const handleRestartBot = async () => {
+    if (!bot) return;
+    setStatusChanging(true);
+    try {
+      addToast('info', 'Restarting bot with start command...');
+      const updated = await api.updateBotStatus(bot.id, 'restart', startCommand);
+      setBot(updated);
+      addToast('success', 'Bot restarted successfully!');
+      fetchBotLogs();
+      refreshBots();
+    } catch (e: any) {
+      addToast('error', e.message || 'Failed to restart bot');
+    } finally {
+      setStatusChanging(false);
+    }
+  };
+
+  const handleSaveStartCommand = async (cmd?: string) => {
+    if (!bot) return;
+    const commandToSave = (cmd !== undefined ? cmd : startCommand).trim();
+    setIsSavingStartCommand(true);
+    try {
+      const updated = await api.updateBotConfig(bot.id, { startCommand: commandToSave });
+      setBot(updated);
+      setStartCommand(updated.startCommand || commandToSave);
+      addToast('success', 'Start command updated successfully!');
+      refreshBots();
+    } catch (err: any) {
+      addToast('error', err.message || 'Failed to save start command');
+    } finally {
+      setIsSavingStartCommand(false);
+    }
+  };
+
+  const handleScanPackagesWithGroq = async () => {
+    if (!bot) return;
+    setIsScanningPackages(true);
+    setInstallOutput(null);
+    try {
+      const res = await api.groqDetectPackages(bot.id);
+      setDetectedPackages(res.packages || []);
+      if (res.packages && res.packages.length > 0) {
+        addToast('success', `Groq AI detected ${res.packages.length} required packages!`);
+      } else {
+        addToast('info', 'No external PyPI packages detected in your workspace files.');
+      }
+    } catch (err: any) {
+      addToast('error', err.message || 'Failed to scan packages with Groq AI');
+    } finally {
+      setIsScanningPackages(false);
+    }
+  };
+
+  const handleInstallPackages = async (pkgs: string[]) => {
+    if (!bot || pkgs.length === 0) return;
+    setIsInstallingPackages(true);
+    setInstallOutput(`[Groq AI Package Manager] Starting pip install for: ${pkgs.join(', ')}...\n`);
+    try {
+      const res = await api.installPackages(bot.id, pkgs);
+      setInstallOutput(res.output);
+      if (res.success) {
+        addToast('success', `Installed: ${pkgs.join(', ')}`);
+        fetchBotLogs();
+      } else {
+        addToast('error', 'Installation completed with warnings/errors. See output below.');
+      }
+    } catch (err: any) {
+      setInstallOutput(prev => (prev || '') + `\nError: ${err.message}`);
+      addToast('error', err.message || 'Failed to install packages');
+    } finally {
+      setIsInstallingPackages(false);
+    }
+  };
+
+  const handleInstallRequirements = async () => {
+    if (!bot) return;
+    setIsInstallingPackages(true);
+    setInstallOutput(`[Groq AI Package Manager] Installing from requirements.txt...\n`);
+    try {
+      const res = await api.installRequirements(bot.id);
+      setInstallOutput(res.output);
+      if (res.success) {
+        addToast('success', 'Successfully installed requirements.txt!');
+        fetchBotLogs();
+      } else {
+        addToast('error', 'Failed to install requirements.txt');
+      }
+    } catch (err: any) {
+      setInstallOutput(prev => (prev || '') + `\nError: ${err.message}`);
+      addToast('error', err.message || 'Failed to install requirements');
+    } finally {
+      setIsInstallingPackages(false);
+    }
+  };
+
+  const handleDiagnoseWithGroq = async (logText?: string) => {
+    if (!bot) return;
+    setIsDiagnosingWithGroq(true);
+    try {
+      const res = await api.groqDiagnose(bot.id, logText);
+      setGroqDiagnosis(res.diagnosis);
+      addToast('success', 'Groq AI analysis ready!');
+    } catch (err: any) {
+      addToast('error', err.message || 'Groq AI diagnosis failed');
+    } finally {
+      setIsDiagnosingWithGroq(false);
     }
   };
 
@@ -500,15 +632,15 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
           </div>
         )}
 
-        {/* Bot Controls Card */}
+        {/* Bot Controls & Execution Card */}
         <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-5">
-          <div>
-            <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Bot Controls</h3>
-            <p className="text-xs text-slate-500">Start, stop or restart your dedicated background process here.</p>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-            <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 mb-1">Bot Controls & Execution</h3>
+              <p className="text-xs text-slate-500">Provide your custom start command, start, stop, or restart your bot engine.</p>
+            </div>
+            
+            <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-600">Status:</span>
               <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border ${
                 bot.status === 'running'
@@ -525,27 +657,97 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                 <span>{bot.status === 'running' ? 'Running' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
               </span>
             </div>
-            
-            <div className="hidden sm:block h-6 w-px bg-slate-200"></div>
-            
+          </div>
+
+          {/* Custom Start Command Section */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <TerminalSquare className="w-4 h-4 text-[#24A1DE]" />
+                <span>Custom Start Command</span>
+              </label>
+              <span className="text-[11px] text-slate-500">
+                You control the command executed inside your sandbox
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={startCommand}
+                onChange={(e) => setStartCommand(e.target.value)}
+                placeholder="e.g. python3 -u main.py"
+                className="flex-1 bg-white border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/40"
+              />
+              <button
+                type="button"
+                onClick={() => handleSaveStartCommand()}
+                disabled={isSavingStartCommand}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSavingStartCommand ? 'Saving...' : 'Save Command'}</span>
+              </button>
+            </div>
+
+            {/* Presets */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Presets:</span>
+              {[
+                `python3 -u ${bot.entryPoint || 'main.py'}`,
+                'python3 -u main.py',
+                'python3 -u bot.py',
+                'python3 -u app.py',
+                `python3 -u ${bot.entryPoint || 'main.py'} --timeout 60`
+              ].filter((val, i, arr) => arr.indexOf(val) === i).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    setStartCommand(preset);
+                    handleSaveStartCommand(preset);
+                  }}
+                  className={`text-[10px] font-mono px-2 py-1 rounded-md border transition-all cursor-pointer ${
+                    startCommand === preset
+                      ? 'bg-sky-100 text-[#0088cc] border-sky-300 font-bold'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-1">
             {bot.status !== 'running' ? (
               <button
                 onClick={() => handleToggleStatus('start')}
                 disabled={statusChanging || isStartingBot}
-                className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <Play className="w-4 h-4" />
                 <span>{isStartingBot ? 'Booting Container...' : 'Start Bot Engine'}</span>
               </button>
             ) : (
-              <button
-                onClick={() => handleToggleStatus('stop')}
-                disabled={statusChanging}
-                className="w-full sm:w-auto px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <Square className="w-4 h-4" />
-                <span>Stop Execution</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+                <button
+                  onClick={() => handleToggleStatus('stop')}
+                  disabled={statusChanging}
+                  className="px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Square className="w-4 h-4" />
+                  <span>Stop Execution</span>
+                </button>
+                <button
+                  onClick={handleRestartBot}
+                  disabled={statusChanging}
+                  className="px-5 py-2.5 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${statusChanging ? 'animate-spin' : ''}`} />
+                  <span>Restart with Start Command</span>
+                </button>
+              </div>
             )}
           </div>
 
@@ -689,6 +891,177 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
             </div>
           </form>
         </div>
+
+        {/* Groq AI Package & Dependency Manager Card */}
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  Groq AI Dependency & Package Manager
+                </h3>
+                <span className="px-2 py-0.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-[10px] font-bold rounded-full uppercase tracking-wider flex items-center gap-1 shadow-xs">
+                  <Sparkles className="w-3 h-3" /> Groq AI
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Scan your workspace Python code with Groq AI to automatically detect required packages, or install any package via pip.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleScanPackagesWithGroq}
+              disabled={isScanningPackages || isInstallingPackages}
+              className="px-4 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              {isScanningPackages ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Scanning Workspace...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>⚡ AI Scan & Auto-Detect</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Quick manual install and requirements.txt shortcuts */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-[#24A1DE]" />
+                <span>Quick Install PyPI Package</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. httpx, aiogram, redis, pillow"
+                  value={customPackageInput}
+                  onChange={(e) => setCustomPackageInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customPackageInput.trim()) {
+                      e.preventDefault();
+                      handleInstallPackages([customPackageInput.trim()]);
+                      setCustomPackageInput('');
+                    }
+                  }}
+                  className="flex-1 border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#24A1DE]/40 text-slate-900 font-mono"
+                />
+                <button
+                  type="button"
+                  disabled={!customPackageInput.trim() || isInstallingPackages}
+                  onClick={() => {
+                    handleInstallPackages([customPackageInput.trim()]);
+                    setCustomPackageInput('');
+                  }}
+                  className="px-4 py-2 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isInstallingPackages ? 'Installing...' : 'Install'}
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Common packages: <span className="font-mono text-slate-600">python-telegram-bot, httpx, requests, aiogram, python-dotenv</span>
+              </p>
+            </div>
+
+            {/* requirements.txt shortcut */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <FileCode className="w-4 h-4 text-emerald-600" />
+                <span>requirements.txt Batch Install</span>
+              </label>
+              <div>
+                <button
+                  type="button"
+                  disabled={isInstallingPackages}
+                  onClick={handleInstallRequirements}
+                  className="w-full px-4 py-2 border border-emerald-300 hover:border-emerald-500 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Install All from requirements.txt</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Executes <code className="font-mono text-slate-600">pip install -r requirements.txt</code> inside the bot workspace.
+              </p>
+            </div>
+          </div>
+
+          {/* Detected Packages via Groq AI */}
+          {detectedPackages.length > 0 && (
+            <div className="bg-orange-50/60 border border-orange-200 rounded-xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-orange-600" />
+                  <span className="text-xs font-bold text-orange-950">
+                    Groq AI Detected {detectedPackages.length} Package{detectedPackages.length > 1 ? 's' : ''} in your Code
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isInstallingPackages}
+                  onClick={() => handleInstallPackages(detectedPackages.map((p) => p.name))}
+                  className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Zap className="w-3 h-3" />
+                  <span>Install All ({detectedPackages.length})</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {detectedPackages.map((pkg, idx) => (
+                  <div
+                    key={idx}
+                    className="bg-white border border-orange-200/80 rounded-lg p-2.5 flex items-center justify-between gap-2 shadow-2xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-mono font-bold text-xs text-slate-900 truncate">
+                        {pkg.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate">
+                        {pkg.description || `import ${pkg.importName}`}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isInstallingPackages}
+                      onClick={() => handleInstallPackages([pkg.name])}
+                      className="text-[10px] font-bold px-2.5 py-1 bg-slate-100 hover:bg-orange-100 hover:text-orange-700 text-slate-700 rounded transition-all cursor-pointer shrink-0 disabled:opacity-50"
+                    >
+                      Install
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Installation output terminal box */}
+          {installOutput && (
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2 font-mono text-[11px]">
+              <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1.5">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                  <Terminal className="w-3.5 h-3.5 text-[#24A1DE]" />
+                  Pip Package Installation Log
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setInstallOutput(null)}
+                  className="text-slate-500 hover:text-slate-300 text-[10px] cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+              <pre className="text-slate-200 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed font-mono">
+                {installOutput}
+              </pre>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -824,18 +1197,104 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   );
 
   const renderLogsView = () => (
-    <div className="space-y-6 animate-in fade-in h-full flex flex-col">
+    <div className="space-y-4 animate-in fade-in h-full flex flex-col">
+      {/* Groq AI Diagnosis Banner if active */}
+      {groqDiagnosis && (
+        <div className="bg-slate-900 border border-orange-500/50 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="p-1.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg shadow-xs">
+                <Sparkles className="w-4 h-4" />
+              </span>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Groq AI Error Diagnosis</span>
+                  <span className="text-[10px] px-2 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full uppercase font-mono">
+                    {groqDiagnosis.errorType || 'Runtime Issue'}
+                  </span>
+                </h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  AI-analyzed runtime exception from your bot console
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGroqDiagnosis(null)}
+              className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            <div className="text-slate-200 leading-relaxed font-sans bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+              <span className="text-orange-400 font-semibold block mb-1">Issue Overview:</span>
+              {groqDiagnosis.explanation}
+            </div>
+
+            {groqDiagnosis.suggestedFix && (
+              <div className="text-emerald-300 leading-relaxed font-sans bg-emerald-950/30 p-3 rounded-xl border border-emerald-800/40">
+                <span className="text-emerald-400 font-semibold block mb-1">Suggested Fix:</span>
+                {groqDiagnosis.suggestedFix}
+              </div>
+            )}
+
+            {groqDiagnosis.missingPackages && groqDiagnosis.missingPackages.length > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-amber-950/30 p-3 rounded-xl border border-amber-800/40">
+                <div>
+                  <span className="text-amber-400 font-semibold text-xs block">
+                    Missing Packages Detected:
+                  </span>
+                  <span className="text-amber-200 text-[11px] font-mono">
+                    {groqDiagnosis.missingPackages.join(', ')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isInstallingPackages}
+                  onClick={() => handleInstallPackages(groqDiagnosis.missingPackages)}
+                  className="px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>⚡ 1-Click Install ({groqDiagnosis.missingPackages.length})</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between bg-slate-900 p-4 rounded-t-2xl border-b border-slate-800">
         <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
           <Terminal className="w-4 h-4 text-[#0088cc]" />
           Real-time Console Stream
         </h3>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] text-emerald-400 font-bold uppercase flex items-center gap-1.5">
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => handleDiagnoseWithGroq()}
+            disabled={isDiagnosingWithGroq || logs.length === 0}
+            className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white text-xs font-bold rounded-lg transition-all shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Analyze recent logs and errors with Groq AI"
+          >
+            {isDiagnosingWithGroq ? (
+              <>
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                <span>Diagnosing...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3 h-3" />
+                <span>Diagnose with Groq AI</span>
+              </>
+            )}
+          </button>
+          <span className="text-[10px] text-emerald-400 font-bold uppercase flex items-center gap-1.5 ml-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             Connected
           </span>
-          <button onClick={fetchBotLogs} className="text-slate-400 hover:text-white cursor-pointer" title="Refresh">
+          <button onClick={fetchBotLogs} className="text-slate-400 hover:text-white cursor-pointer ml-1" title="Refresh">
             <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} />
           </button>
         </div>

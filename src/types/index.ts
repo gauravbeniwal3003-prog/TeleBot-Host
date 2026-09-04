@@ -75,6 +75,7 @@ export interface TelegramBot {
   lastErrorTechnical?: string;
   gitRepoUrl?: string;
   entryPoint: string; // e.g. "main.py" or "bot.js"
+  startCommand?: string; // Custom user start command e.g. "python3 -u main.py" or "python3 -u bot.py"
   envVars: BotEnvVar[];
   hasDatabase: boolean;
   dbType?: 'sqlite' | 'postgres' | 'redis';

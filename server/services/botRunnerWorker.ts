@@ -389,6 +389,12 @@ export class BotRunnerWorker extends EventEmitter {
     // Resolve python binary dynamically (support standard host python, venv, or custom path)
     const pythonBin = process.env.PYTHON_BIN || (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : 'python3');
 
+    // Resolve start command: user custom command takes precedence, or fallback to python entrypoint
+    const defaultCommand = `${pythonBin} -u ${entryPoint}`;
+    const commandToRun = (bot?.start_command && bot.start_command.trim().length > 0)
+      ? bot.start_command.trim()
+      : defaultCommand;
+
     // Append beautiful terminal startup sequence logs
     try {
       db.clearBotLogs(botId, userId);
@@ -396,7 +402,7 @@ export class BotRunnerWorker extends EventEmitter {
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Workspace Path: ${botDir}`);
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Resource allocation: RAM Limit: ${sandbox.memoryLimitMB}MB, Storage Limit: ${sandbox.storageQuotaMB || 2048}MB`);
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Starting file sync to dedicated user folder...`);
-      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: ${pythonBin} -u ${entryPoint}`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Command Executed: ${commandToRun}`);
 
       const envDict: Record<string, string> = { ...process.env, PYTHONUNBUFFERED: '1' };
       if (envVars && envVars.length > 0) {
@@ -416,9 +422,10 @@ export class BotRunnerWorker extends EventEmitter {
 
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Pre-flight checks passed. Booting bot engine...`);
 
-      const child = spawn(pythonBin, ['-u', entryPoint], {
+      const child = spawn(commandToRun, {
         cwd: botDir,
         env: envDict,
+        shell: true,
       });
 
       this.activeProcesses.set(botId, child);

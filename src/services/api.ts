@@ -223,12 +223,63 @@ class ApiService {
     return res.bot;
   }
 
-  async updateBotStatus(botId: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'restart'): Promise<TelegramBot> {
+  async updateBotStatus(botId: string, action: 'start' | 'stop' | 'pause' | 'resume' | 'restart', startCommand?: string): Promise<TelegramBot> {
     const res = await this.request<{ bot: TelegramBot }>(`/api/bots/${botId}/action`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, startCommand }),
     });
     return res.bot;
+  }
+
+  async updateBotConfig(
+    botId: string,
+    config: {
+      name?: string;
+      entryPoint?: string;
+      startCommand?: string;
+      framework?: BotFramework;
+      token?: string;
+    }
+  ): Promise<TelegramBot> {
+    const res = await this.request<{ bot: TelegramBot }>(`/api/bots/${botId}/config`, {
+      method: 'PATCH',
+      body: JSON.stringify(config),
+    });
+    return res.bot;
+  }
+
+  async groqDiagnose(botId: string, rawLog?: string): Promise<{ diagnosis: any }> {
+    return this.request<{ diagnosis: any }>(`/api/bots/${botId}/ai/diagnose`, {
+      method: 'POST',
+      body: JSON.stringify({ rawLog }),
+    });
+  }
+
+  async groqDetectPackages(botId: string): Promise<{
+    packages: Array<{ name: string; description: string; importName: string }>;
+    installCommand: string;
+    summary: string;
+  }> {
+    return this.request<{
+      packages: Array<{ name: string; description: string; importName: string }>;
+      installCommand: string;
+      summary: string;
+    }>(`/api/bots/${botId}/ai/detect-packages`, {
+      method: 'POST',
+    });
+  }
+
+  async installPackages(botId: string, packages: string[]): Promise<{ success: boolean; message: string; output: string }> {
+    return this.request<{ success: boolean; message: string; output: string }>(`/api/bots/${botId}/packages/install`, {
+      method: 'POST',
+      body: JSON.stringify({ packages }),
+    });
+  }
+
+  async installRequirements(botId: string): Promise<{ success: boolean; message: string; output: string }> {
+    return this.request<{ success: boolean; message: string; output: string }>(`/api/bots/${botId}/packages/install-requirements`, {
+      method: 'POST',
+    });
   }
 
   async switchActiveBot(targetBotId: string, fromBotId?: string): Promise<{ targetBot: TelegramBot; stoppedBot?: TelegramBot; message: string }> {

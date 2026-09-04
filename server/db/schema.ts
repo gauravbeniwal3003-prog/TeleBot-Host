@@ -84,6 +84,7 @@ export interface DBTelegramBot {
   status: DBBotStatus;
   is_active_slot: boolean;
   entry_point: string;
+  start_command?: string;
   git_repo_url?: string;
   has_database: boolean;
   db_type?: 'sqlite' | 'postgres' | 'redis';

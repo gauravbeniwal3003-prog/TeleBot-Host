@@ -6,6 +6,7 @@ import { PythonValidator } from '../services/pythonValidator';
 import { vpsWorkerClient } from '../services/vpsWorkerClient';
 import { LogManager } from '../services/logManager';
 import { ErrorTranslator } from '../services/errorTranslator';
+import { GroqAiService } from '../services/groqAiService';
 
 export const botsRouter = Router();
 
@@ -40,6 +41,7 @@ function formatBot(bot: DBTelegramBot, envVars: any[] = []) {
     lastErrorTechnical: bot.last_error_technical,
     gitRepoUrl: bot.git_repo_url,
     entryPoint: bot.entry_point,
+    startCommand: bot.start_command || '',
     hasDatabase: bot.has_database,
     dbType: bot.db_type,
     webhookEnabled: bot.webhook_enabled,
@@ -167,13 +169,13 @@ botsRouter.get('/:id', (req: Request, res: Response): void => {
 // 4. PERFORM BOT ACTIONS (start, stop, pause, resume, restart)
 botsRouter.post('/:id/action', (req: Request, res: Response): void => {
   try {
-    const { action } = req.body;
+    const { action, startCommand } = req.body;
     if (!['start', 'stop', 'pause', 'resume', 'restart'].includes(action)) {
       res.status(400).json({ error: 'Invalid action. Choose from start, stop, pause, resume, restart' });
       return;
     }
 
-    const updatedBot = db.updateBotStatus(req.params.id, req.user!.id, action as any);
+    const updatedBot = db.updateBotStatus(req.params.id, req.user!.id, action as any, startCommand);
     const envs = db.getBotEnvVars(updatedBot.id, req.user!.id);
 
     res.json({
@@ -182,6 +184,28 @@ botsRouter.post('/:id/action', (req: Request, res: Response): void => {
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to execute bot action' });
+  }
+});
+
+// 4a. UPDATE BOT CONFIG (Custom Start Command, Entry Point, Name)
+botsRouter.patch('/:id/config', (req: Request, res: Response): void => {
+  try {
+    const { name, entryPoint, startCommand, framework, token } = req.body;
+    const updatedBot = db.updateBotConfig(req.params.id, req.user!.id, {
+      name,
+      entry_point: entryPoint,
+      start_command: startCommand,
+      framework,
+      token,
+    });
+    const envs = db.getBotEnvVars(updatedBot.id, req.user!.id);
+
+    res.json({
+      bot: formatBot(updatedBot, envs),
+      message: 'Bot configuration updated successfully',
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Failed to update bot configuration' });
   }
 });
 
@@ -408,6 +432,82 @@ botsRouter.post('/:id/env', (req: Request, res: Response): void => {
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to save env vars' });
+  }
+});
+
+// 7. GROQ AI ERROR DIAGNOSIS
+botsRouter.post('/:id/ai/diagnose', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bot = db.getBotById(req.params.id, req.user!.id);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+
+    const { rawLog } = req.body;
+    let logToAnalyze = rawLog;
+    if (!logToAnalyze) {
+      // Grab recent error/system logs
+      const logsResult = LogManager.getLogs(bot.id, req.user!.id, { limit: 40 });
+      logToAnalyze = logsResult.logs.map((l) => `[${l.level.toUpperCase()}] ${l.message}`).join('\n');
+    }
+
+    const diagnosis = await GroqAiService.diagnoseError(logToAnalyze, {
+      botName: bot.name,
+      framework: bot.framework,
+    });
+
+    res.json({ diagnosis });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Groq AI diagnosis failed' });
+  }
+});
+
+// 8. GROQ AI DETECT PACKAGES FROM WORKSPACE
+botsRouter.post('/:id/ai/detect-packages', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bot = db.getBotById(req.params.id, req.user!.id);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+
+    const files = db.getBotFilesDirect(bot.id);
+    const codeFiles = files.map((f) => ({
+      fileName: f.file_path,
+      content: f.content || '',
+    }));
+
+    const result = await GroqAiService.detectPackagesFromCode(codeFiles);
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Package detection failed' });
+  }
+});
+
+// 9. REAL-TIME PIP PACKAGE INSTALLATION ON HOST
+botsRouter.post('/:id/packages/install', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { packages } = req.body;
+    if (!packages || !Array.isArray(packages) || packages.length === 0) {
+      res.status(400).json({ error: 'Please provide an array of package names' });
+      return;
+    }
+
+    const result = await GroqAiService.installPackages(req.params.id, req.user!.id, packages);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Package installation failed' });
+  }
+});
+
+// 10. INSTALL REQUIREMENTS.TXT
+botsRouter.post('/:id/packages/install-requirements', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await GroqAiService.installRequirementsFile(req.params.id, req.user!.id);
+    res.json(result);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'requirements.txt installation failed' });
   }
 });
 

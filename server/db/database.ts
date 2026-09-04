@@ -1210,13 +1210,62 @@ class RelationalDatabase {
     return { bot, envVars };
   }
 
-  updateBotStatus(
+  updateBotConfig(
     botId: string,
     userId: string,
-    action: 'start' | 'stop' | 'pause' | 'resume' | 'restart'
+    updates: {
+      name?: string;
+      entry_point?: string;
+      start_command?: string;
+      framework?: DBTelegramBot['framework'];
+      token?: string;
+    }
   ): DBTelegramBot {
     const bot = this.getBotById(botId, userId);
     if (!bot) throw new Error('Bot not found or unauthorized');
+
+    if (updates.name !== undefined) bot.name = updates.name.trim();
+    if (updates.entry_point !== undefined) bot.entry_point = updates.entry_point.trim();
+    if (updates.start_command !== undefined) bot.start_command = updates.start_command.trim();
+    if (updates.framework !== undefined) bot.framework = updates.framework;
+    bot.updated_at = new Date().toISOString();
+
+    if (updates.token) {
+      const envs = this.getBotEnvVars(botId, userId);
+      const tokenEnv = envs.find((e) => e.key === 'TELEGRAM_TOKEN' || e.key === 'BOT_TOKEN');
+      if (tokenEnv) {
+        tokenEnv.value = updates.token;
+        tokenEnv.updated_at = new Date().toISOString();
+      } else {
+        this.data.env_vars.push({
+          id: `env_${Date.now()}`,
+          bot_id: botId,
+          user_id: userId,
+          key: 'TELEGRAM_TOKEN',
+          value: updates.token,
+          is_secret: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    this.save();
+    return bot;
+  }
+
+  updateBotStatus(
+    botId: string,
+    userId: string,
+    action: 'start' | 'stop' | 'pause' | 'resume' | 'restart',
+    customStartCommand?: string
+  ): DBTelegramBot {
+    const bot = this.getBotById(botId, userId);
+    if (!bot) throw new Error('Bot not found or unauthorized');
+
+    if (customStartCommand !== undefined && customStartCommand.trim().length > 0) {
+      bot.start_command = customStartCommand.trim();
+    }
 
     const sub = bot.project_id ? this.getProjectSubscription(bot.project_id) : this.getUserSubscription(userId);
     const userBots = this.getUserBots(userId);
