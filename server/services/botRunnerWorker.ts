@@ -20,6 +20,7 @@ import { db } from '../db/database';
 import { PythonValidator, PythonValidationResult } from './pythonValidator';
 import { LogManager } from './logManager';
 import { ErrorTranslator } from './errorTranslator';
+import { PythonResiliencyEngine } from './pythonResiliencyEngine';
 
 export type ContainerState = 'STARTING' | 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'ERROR' | 'EXPIRED';
 
@@ -375,6 +376,16 @@ export class BotRunnerWorker extends EventEmitter {
       fs.writeFileSync(fullPath, file.content || '', 'utf-8');
     }
 
+    // Ensure transparent runtime resiliency hook exists in botDir
+    const hooksDir = PythonResiliencyEngine.getHooksDir();
+    try {
+      const srcHook = path.join(hooksDir, 'sitecustomize.py');
+      const dstHook = path.join(botDir, 'sitecustomize.py');
+      if (fs.existsSync(srcHook) && !fs.existsSync(dstHook)) {
+        fs.copyFileSync(srcHook, dstHook);
+      }
+    } catch {}
+
     let entryPoint = bot ? bot.entry_point || 'main.py' : 'main.py';
     if (!fs.existsSync(path.join(botDir, entryPoint))) {
       const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
@@ -495,6 +506,10 @@ export class BotRunnerWorker extends EventEmitter {
       }
 
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Executing Start Command: ${commandToRun}`);
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Connection Resiliency Engine: Active (Transparent 60s network timeouts & auto-retry handshake)`);
+
+      // Initialize transparent Python Resiliency Engine (auto-injects 60s network timeouts for httpx/python-telegram-bot/aiohttp)
+      const hooksDir = PythonResiliencyEngine.getHooksDir();
 
       // Strict sandbox environment dictionary — Low-memory optimizations for 1.3GB VPS multi-bot density
       const envDict: Record<string, string> = {
@@ -505,7 +520,7 @@ export class BotRunnerWorker extends EventEmitter {
         MALLOC_TRIM_THRESHOLD_: '65536', // Forces glibc to return freed memory >64KB immediately to OS
         MALLOC_MMAP_THRESHOLD_: '65536',
         PYTHONDONTWRITEBYTECODE: '1', // Prevents bloating disk/RAM with bytecode caches
-        PYTHONPATH: botDir,
+        PYTHONPATH: `${hooksDir}:${botDir}`,
         HOME: botDir,
         TMPDIR: botDir,
         LANG: process.env.LANG || 'C.UTF-8',
