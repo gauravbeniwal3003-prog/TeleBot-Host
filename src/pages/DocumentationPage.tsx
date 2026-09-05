@@ -41,6 +41,7 @@ export const DocumentationPage: React.FC<DocumentationPageProps> = ({ navigate }
   const navCategories = [
     { id: 'quickstart', label: '🚀 60-Second Quickstart', icon: Zap },
     { id: 'telebot', label: '🤖 PyTelegramBotAPI', icon: Code2 },
+    { id: 'ptb', label: '⚡ Python-Telegram-Bot (Async)', icon: Code2 },
     { id: 'database', label: '💾 SQLite & File Persistence', icon: Database },
     { id: 'envvars', label: '🔐 Secrets & Env Variables', icon: KeyRound },
     { id: 'troubleshooting', label: '🛠️ Troubleshooting & Fixes', icon: HelpCircle },
@@ -69,6 +70,46 @@ def echo_all(message):
 
 print("[TeleBot Host] TeleBot starting polling...")
 bot.infinity_polling()`,
+    },
+    ptb: {
+      title: 'Python-Telegram-Bot (v20+ / v21+ / v22+)',
+      desc: 'Async framework with resilient HTTPX connection pooling and custom timeouts.',
+      filename: 'main.py',
+      code: `import os
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.request import HTTPXRequest
+
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+
+# Resilient connection settings (Prevents httpx.ConnectTimeout errors)
+request_config = HTTPXRequest(
+    connect_timeout=60.0,
+    read_timeout=60.0,
+    write_timeout=60.0,
+    pool_timeout=60.0,
+    connection_pool_size=8,
+)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Hello! Bot is running 24/7 on TeleBot Host.")
+
+def main():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .request(request_config)
+        .get_updates_request(request_config)
+        .build()
+    )
+
+    app.add_handler(CommandHandler("start", start))
+
+    print("[TeleBot Host] Python-Telegram-Bot starting with resilient timeouts...")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()`,
     },
     database: {
       title: 'SQLite & Persistent Storage',
@@ -336,6 +377,13 @@ init_db()`,
               </div>
 
               <div className="space-y-3 pt-2">
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900">Q: httpx.ConnectTimeout or Network Retry Loop: Timed out</span>
+                  <p className="text-slate-600 leading-relaxed">
+                    By default, <code>python-telegram-bot</code> uses a 5.0-second timeout during bootstrap. To avoid connection drops, pass <code>HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)</code> to <code>Application.builder().request(request_config)</code> and set <code>app.run_polling(drop_pending_updates=True)</code>.
+                  </p>
+                </div>
+
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
                   <span className="font-bold text-slate-900">Q: ModuleNotFoundError: No module named 'aiogram'</span>
                   <p className="text-slate-600">

@@ -510,6 +510,13 @@ export class BotRunnerWorker extends EventEmitter {
         TMPDIR: botDir,
         LANG: process.env.LANG || 'C.UTF-8',
         LC_ALL: process.env.LC_ALL || 'C.UTF-8',
+        HTTPX_TIMEOUT: '60',
+        AIOHTTP_TIMEOUT: '60',
+        REQUESTS_TIMEOUT: '60',
+        ...(process.env.HTTPS_PROXY ? { HTTPS_PROXY: process.env.HTTPS_PROXY } : {}),
+        ...(process.env.HTTP_PROXY ? { HTTP_PROXY: process.env.HTTP_PROXY } : {}),
+        ...(process.env.ALL_PROXY ? { ALL_PROXY: process.env.ALL_PROXY } : {}),
+        ...(process.env.NO_PROXY ? { NO_PROXY: process.env.NO_PROXY } : {}),
       };
 
       const validEnvVars = (envVars || []).filter((ev) => {
@@ -642,8 +649,14 @@ export class BotRunnerWorker extends EventEmitter {
           LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Bot process completed normally (exit code 0).`);
         } else {
           // If we captured an error in stderrBuffer, check if a specific root cause can be highlighted
-          if (stderrBuffer.includes('ConnectTimeout') || stderrBuffer.includes('httpcore.ConnectTimeout') || stderrBuffer.includes('httpx.ConnectTimeout')) {
-            LogManager.appendLog(botId, userId, 'error', `[Terminal] [NETWORK ERROR] Telegram API Connection Timeout. The bot could not reach Telegram servers over HTTPS. Ensure outbound connection to https://api.telegram.org is unrestricted.`);
+          if (
+            stderrBuffer.includes('ConnectTimeout') ||
+            stderrBuffer.includes('httpcore.ConnectTimeout') ||
+            stderrBuffer.includes('httpx.ConnectTimeout') ||
+            stderrBuffer.includes('Network Retry Loop')
+          ) {
+            LogManager.appendLog(botId, userId, 'error', `[Terminal] [NETWORK TIMEOUT] Telegram API Connection Handshake Timed Out (httpx.ConnectTimeout).`);
+            LogManager.appendLog(botId, userId, 'warn', `[Terminal] [FIX] 💡 Tip: In python-telegram-bot, pass HTTPXRequest(connect_timeout=60.0, read_timeout=60.0) and drop_pending_updates=True to prevent 5.0-second default timeout.`);
           }
           LogManager.appendLog(botId, userId, 'error', `[Terminal] [PROCESS CRASH] Bot exited with error code ${code}. Please inspect the error traceback above.`);
         }

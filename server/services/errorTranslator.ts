@@ -55,22 +55,28 @@ export class ErrorTranslator {
     const text = rawMessage.trim();
 
     // Ignore intermediate traceback lines, source code snippets, and standard logs that are not actual errors
+    // Note: Do NOT ignore if it contains critical error signatures like ConnectTimeout or Timed out
     if (
-      text.startsWith('File "') ||
-      text.startsWith('^^^^') ||
-      text.startsWith('return await') ||
-      text.startsWith('await ') ||
-      text.startsWith('return ') ||
-      text.startsWith('def ') ||
-      text.startsWith('async ') ||
-      text.startsWith('raise ') ||
-      text.startsWith('result =') ||
-      text.startsWith('The above exception') ||
-      text.startsWith('During handling of') ||
-      text === '^' ||
-      text.startsWith('Traceback') ||
-      text.includes('INFO - HTTP Request:') ||
-      text.includes('Network Retry Loop')
+      !text.includes('ConnectTimeout') &&
+      !text.includes('Timed out') &&
+      !text.includes('TimedOut') &&
+      !text.includes('NetworkError') &&
+      (
+        text.startsWith('File "') ||
+        text.startsWith('^^^^') ||
+        text.startsWith('return await') ||
+        text.startsWith('await ') ||
+        text.startsWith('return ') ||
+        text.startsWith('def ') ||
+        text.startsWith('async ') ||
+        text.startsWith('raise ') ||
+        text.startsWith('result =') ||
+        text.startsWith('The above exception') ||
+        text.startsWith('During handling of') ||
+        text === '^' ||
+        text.startsWith('Traceback') ||
+        text.includes('INFO - HTTP Request:')
+      )
     ) {
       return {
         isError: false,
@@ -227,28 +233,36 @@ export class ErrorTranslator {
 
     // 7. Network / Telegram Connection Timeout
     if (
-      text.includes('NetworkError') ||
-      text.includes('TimedOut') ||
       text.includes('ConnectTimeout') ||
-      text.includes('ConnectError') ||
       text.includes('httpcore.ConnectTimeout') ||
       text.includes('httpx.ConnectTimeout') ||
+      text.includes('httpx.ReadTimeout') ||
+      text.includes('Network Retry Loop') ||
+      text.includes('telegram.ext - ERROR - Network Retry Loop') ||
+      text.includes('NetworkError') ||
+      text.includes('TimedOut') ||
+      text.includes('ConnectError') ||
       text.includes('ConnectionRefusedError') ||
       text.includes('RemoteDisconnected') ||
       text.includes('telegram.error.NetworkError') ||
       text.includes('telegram.error.TimedOut')
     ) {
+      const isPTBTimeout = text.includes('httpx.ConnectTimeout') || text.includes('httpcore.ConnectTimeout') || text.includes('Network Retry Loop') || text.includes('telegram.ext');
       return {
         isError: true,
         errorCategory: 'network_timeout',
-        friendlyTitle: 'Temporary Network Connection Timeout',
-        friendlyMessage: 'Bot encountered a network timeout while connecting to the Telegram API servers.',
-        suggestedFix: 'Check that your VPS firewall or outbound network permits HTTPS traffic to api.telegram.org:443. In python-telegram-bot or aiogram, consider increasing request timeout or using a proxy.',
+        friendlyTitle: isPTBTimeout ? 'Telegram API Connection Timeout (httpx.ConnectTimeout)' : 'Telegram Network Connection Timeout',
+        friendlyMessage: isPTBTimeout
+          ? 'Bot timed out while establishing a secure SSL/TLS connection to Telegram (api.telegram.org). python-telegram-bot defaults to an aggressive 5-second timeout with 0 retries during initialization, which easily causes ConnectTimeout.'
+          : 'Bot encountered a network timeout while connecting to the Telegram API servers.',
+        suggestedFix: isPTBTimeout
+          ? 'Use HTTPXRequest with increased connect/read timeouts (e.g. 60.0s) and drop_pending_updates=True in your script. Example:\nfrom telegram.request import HTTPXRequest\nreq = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)\napp = Application.builder().token(BOT_TOKEN).request(req).get_updates_request(req).build()'
+          : 'Check that outbound HTTPS traffic to api.telegram.org:443 is permitted. In python-telegram-bot, configure custom timeouts using HTTPXRequest(connect_timeout=60.0).',
         severity: 'warning',
         technicalDetails: {
           rawError: text,
-          exceptionType: 'NetworkError / ConnectTimeout',
-          suggestedCommand: 'curl -v https://api.telegram.org',
+          exceptionType: isPTBTimeout ? 'httpx.ConnectTimeout (python-telegram-bot)' : 'NetworkError / ConnectTimeout',
+          suggestedCommand: 'from telegram.request import HTTPXRequest\nreq = HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)\napp = Application.builder().token(...).request(req).get_updates_request(req).build()',
           stackTrace: text,
         },
       };

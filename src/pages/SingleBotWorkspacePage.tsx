@@ -116,6 +116,8 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   const [editorAstResult, setEditorAstResult] = useState<PythonValidationResult | null>(null);
   const [isValidatingEditorAst, setIsValidatingEditorAst] = useState(false);
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
+  const [showTimeoutModal, setShowTimeoutModal] = useState(false);
+  const [copiedTimeoutSnippet, setCopiedTimeoutSnippet] = useState(false);
 
   // Upgrade state
   const [selectedUpgradeStorage, setSelectedUpgradeStorage] = useState<string>('1GB');
@@ -296,6 +298,155 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       addToast('error', err.message || 'AST validation failed');
     } finally {
       setIsValidatingEditorAst(false);
+    }
+  };
+
+  const RESILIENT_PTB_SNIPPET = `import os
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.request import HTTPXRequest
+
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN", "YOUR_BOT_TOKEN_HERE")
+
+# Resilient connection settings (Prevents httpx.ConnectTimeout errors)
+request_config = HTTPXRequest(
+    connect_timeout=60.0,
+    read_timeout=60.0,
+    write_timeout=60.0,
+    pool_timeout=60.0,
+    connection_pool_size=8,
+)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Hello! Bot is running 24/7 on TeleBot Host.")
+
+def main():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .request(request_config)
+        .get_updates_request(request_config)
+        .build()
+    )
+
+    app.add_handler(CommandHandler("start", start))
+    print("[TeleBot Host] Python-Telegram-Bot starting with 60s timeouts...")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()`;
+
+  const handleCopyTimeoutSnippet = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(RESILIENT_PTB_SNIPPET);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = RESILIENT_PTB_SNIPPET;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedTimeoutSnippet(true);
+      addToast('success', 'Resilient HTTPX connection snippet copied to clipboard!');
+      setTimeout(() => setCopiedTimeoutSnippet(false), 2500);
+    } catch {
+      addToast('error', 'Failed to copy snippet to clipboard');
+    }
+  };
+
+  const handleInsertPtbTimeoutCode = () => {
+    if (!editorContent.includes('HTTPXRequest')) {
+      let updated = editorContent;
+      if (updated.includes('from telegram.ext import')) {
+        updated = updated.replace(
+          'from telegram.ext import',
+          'from telegram.request import HTTPXRequest\nfrom telegram.ext import'
+        );
+      } else if (updated.includes('import telegram')) {
+        updated = updated.replace('import telegram', 'import telegram\nfrom telegram.request import HTTPXRequest');
+      } else {
+        updated = 'from telegram.request import HTTPXRequest\n' + updated;
+      }
+
+      const configBlock = `\n# Resilient 60s Network Timeout Configuration (Prevents httpx.ConnectTimeout)\nrequest_config = HTTPXRequest(\n    connect_timeout=60.0,\n    read_timeout=60.0,\n    write_timeout=60.0,\n    pool_timeout=60.0,\n    connection_pool_size=8,\n)\n`;
+
+      if (updated.includes('Application.builder()')) {
+        updated = updated.replace(
+          'Application.builder()',
+          `${configBlock}\n    Application.builder()\n        .request(request_config)\n        .get_updates_request(request_config)`
+        );
+      } else {
+        updated = updated + '\n' + configBlock;
+      }
+
+      if (updated.includes('run_polling()')) {
+        updated = updated.replace('run_polling()', 'run_polling(drop_pending_updates=True)');
+      }
+
+      setEditorContent(updated);
+      addToast('success', 'Injected 60s HTTPXRequest resilient timeouts into editor!');
+    } else {
+      addToast('info', 'HTTPXRequest is already present in this file.');
+    }
+  };
+
+  const handleAutoApplyPtbFixToFile = async () => {
+    if (!bot) return;
+    try {
+      const targetFileName = bot.entryPoint || 'main.py';
+      const targetFile = files.find(f => f.fileName === targetFileName || f.filePath === targetFileName);
+      
+      let sourceCode = '';
+      if (activeEditorFile && (activeEditorFile.fileName === targetFileName || activeEditorFile.filePath === targetFileName)) {
+        sourceCode = editorContent;
+      } else if (targetFile) {
+        const fileData = await api.getBotFileContent(bot.id, targetFile.filePath);
+        sourceCode = fileData.content || '';
+      }
+
+      let updatedCode = sourceCode;
+      if (!updatedCode || updatedCode.trim().length === 0) {
+        updatedCode = RESILIENT_PTB_SNIPPET;
+      } else if (!updatedCode.includes('HTTPXRequest')) {
+        if (updatedCode.includes('from telegram.ext import')) {
+          updatedCode = updatedCode.replace(
+            'from telegram.ext import',
+            'from telegram.request import HTTPXRequest\nfrom telegram.ext import'
+          );
+        } else {
+          updatedCode = 'from telegram.request import HTTPXRequest\n' + updatedCode;
+        }
+
+        const configBlock = `\n# Resilient 60s Network Timeout Configuration (Prevents httpx.ConnectTimeout)\nrequest_config = HTTPXRequest(\n    connect_timeout=60.0,\n    read_timeout=60.0,\n    write_timeout=60.0,\n    pool_timeout=60.0,\n    connection_pool_size=8,\n)\n`;
+
+        if (updatedCode.includes('Application.builder()')) {
+          updatedCode = updatedCode.replace(
+            'Application.builder()',
+            `${configBlock}\n    Application.builder()\n        .request(request_config)\n        .get_updates_request(request_config)`
+          );
+        } else {
+          updatedCode = updatedCode + '\n' + configBlock;
+        }
+
+        if (updatedCode.includes('run_polling()')) {
+          updatedCode = updatedCode.replace('run_polling()', 'run_polling(drop_pending_updates=True)');
+        }
+      }
+
+      await api.saveBotFile(bot.id, targetFile?.filePath || targetFileName, updatedCode);
+      if (activeEditorFile) {
+        setEditorContent(updatedCode);
+      }
+      setShowTimeoutModal(false);
+      setStartError(null);
+      addToast('success', `Saved resilient HTTPXRequest timeout fix to ${targetFileName}!`);
+      fetchBotFilesAndStorage();
+    } catch (err: any) {
+      addToast('error', err.message || 'Failed to auto-apply timeout fix');
     }
   };
 
@@ -1433,12 +1584,53 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                       )}
                     </div>
                   ) : (
-                    <p className="text-[11px] font-mono text-rose-300 leading-relaxed pl-6 whitespace-pre-wrap">
-                      {startError}
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] font-mono text-rose-300 leading-relaxed pl-6 whitespace-pre-wrap">
+                        {startError}
+                      </p>
+                      
+                      {(startError.includes('ConnectTimeout') || startError.includes('Timed out') || startError.includes('Network Retry Loop') || startError.includes('NetworkError') || startError.includes('telegram')) && (
+                        <div className="ml-6 p-3 bg-amber-950/50 border border-amber-800/80 rounded-xl text-amber-200 text-xs space-y-2 font-sans">
+                          <div className="flex items-center gap-2 font-bold text-amber-300">
+                            <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                            <span>Telegram API Handshake Timeout (ConnectTimeout)</span>
+                          </div>
+                          <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                            <code>python-telegram-bot</code> defaults to an aggressive 5.0-second timeout during startup. Network latency can cause the initial connection handshake to Telegram to time out.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setShowTimeoutModal(true)}
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            >
+                              <Zap className="w-3.5 h-3.5" />
+                              <span>⚡ Auto-Apply Resilient HTTPX Timeout Fix</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCopyTimeoutSnippet}
+                              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-200 border border-amber-800/60 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>{copiedTimeoutSnippet ? 'Copied Snippet!' : 'Copy Fix Code'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   <div className="pl-6 pt-1 flex flex-wrap gap-2">
+                    {(startError.includes('ConnectTimeout') || startError.includes('Timed out') || startError.includes('Network Retry Loop')) && (
+                      <button
+                        onClick={() => setShowTimeoutModal(true)}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer font-sans flex items-center gap-1.5 shadow-xs"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Resilient Connection Fix</span>
+                      </button>
+                    )}
                     {astPreflightError && (
                       <button
                         onClick={() => {
@@ -2103,7 +2295,18 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleInsertPtbTimeoutCode}
+                  disabled={loadingEditorContent}
+                  className="px-3 py-1.5 bg-amber-600/90 hover:bg-amber-500 text-slate-950 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Inject 60-second connection timeouts to prevent httpx.ConnectTimeout"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Insert Timeout Fix</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleRunEditorAstCheck}
@@ -2679,6 +2882,107 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
           {tab === 'storage' && renderStorageView()}
         </div>
       </div>
+
+      {/* Resilient HTTPX Timeout Fix Modal */}
+      {showTimeoutModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-3xl flex flex-col shadow-2xl overflow-hidden text-slate-100">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-amber-950/80 text-amber-400 border border-amber-800 rounded-xl">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white">
+                    Telegram API Connection Resiliency (HTTPXRequest)
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Prevents <code className="text-amber-300">httpx.ConnectTimeout</code> by setting resilient 60-second timeouts
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTimeoutModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs overflow-y-auto max-h-[75vh]">
+              <div className="p-3.5 bg-sky-950/40 border border-sky-800/60 rounded-xl text-sky-200 leading-relaxed">
+                <p className="font-bold text-sky-300 mb-1">Why this fix is required:</p>
+                <p>
+                  <code>python-telegram-bot</code> versions 20+, 21+, and 22+ default to an aggressive 5.0-second timeout during startup. During Telegram network load or container handshake, this triggers <code className="text-rose-300">httpx.ConnectTimeout</code>.
+                </p>
+                <p className="mt-1">
+                  Configuring <strong className="text-white">HTTPXRequest(connect_timeout=60.0, read_timeout=60.0)</strong> ensures your bot starts and stays running 24/7 reliably.
+                </p>
+              </div>
+
+              {/* Code Snippet Box */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-slate-300 text-[11px]">
+                    Production-Ready Python-Telegram-Bot Configuration:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyTimeoutSnippet}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer border border-slate-700"
+                  >
+                    {copiedTimeoutSnippet ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-300">Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Copy Snippet</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <pre className="p-4 bg-slate-950 rounded-xl border border-slate-800 font-mono text-[11px] text-amber-200 overflow-x-auto leading-relaxed">
+                  <code>{RESILIENT_PTB_SNIPPET}</code>
+                </pre>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-slate-500 font-sans">
+                Applies directly to your {bot.entryPoint || 'main.py'}
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTimeoutModal(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAutoApplyPtbFixToFile}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>⚡ Auto-Apply & Save to {bot.entryPoint || 'main.py'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
