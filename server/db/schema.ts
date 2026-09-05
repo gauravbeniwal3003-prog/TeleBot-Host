@@ -186,3 +186,16 @@ export interface DBSupportTicket {
   created_at: string;
   updated_at: string;
 }
+
+export interface DBUsedTrialToken {
+  id: string;
+  token_hash: string;
+  bot_id_prefix: string; // Permanent Telegram Bot ID (e.g., "7483920194")
+  user_id: string;
+  user_email: string;
+  bot_name?: string;
+  bot_username?: string;
+  first_used_at: string;
+  expired_at: string;
+  reason?: string;
+}

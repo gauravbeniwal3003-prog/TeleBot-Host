@@ -40,7 +40,7 @@ export const BotCard: React.FC<BotCardProps> = ({
   onOpenSwitchSlot,
   onRefresh,
 }) => {
-  const { addToast } = useAuth();
+  const { user, addToast } = useAuth();
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
 
   const handleStatusChange = async (action: 'start' | 'stop' | 'pause' | 'resume' | 'restart') => {
@@ -133,12 +133,21 @@ export const BotCard: React.FC<BotCardProps> = ({
   };
 
   const statusBadge = getStatusBadge();
-  const diskUsed = bot.storageUsageMB || 25;
+  const planStorageMB = user?.subscription?.storage_limit_gb ? user.subscription.storage_limit_gb * 1024 : 1024;
+  const diskUsed = Math.round((bot.storageUsageMB || 25) * 10) / 10;
+  const isStorageExceeded = diskUsed >= planStorageMB;
+
+  const ramLimit = bot.memoryLimitMB || 100;
+  const rawRamUsage = bot.memoryUsageMB || 0;
+  const ramPercent = isRunning ? Math.min(100, Math.round((rawRamUsage / ramLimit) * 100)) : 0;
+  const isMemoryExceeded = isRunning && (ramPercent >= 95 || (bot.lastErrorTechnical?.toLowerCase().includes('oom') || bot.lastError?.toLowerCase().includes('memory')));
 
   return (
     <div
       className={`bg-white rounded-2xl border transition-all duration-200 shadow-2xs hover:shadow-md flex flex-col justify-between overflow-hidden ${
-        isRunning
+        isMemoryExceeded || isStorageExceeded
+          ? 'border-rose-300 ring-2 ring-rose-200 bg-rose-50/10'
+          : isRunning
           ? 'border-emerald-200 ring-1 ring-emerald-100'
           : isPaused
           ? 'border-amber-200 bg-amber-50/10'
@@ -154,6 +163,16 @@ export const BotCard: React.FC<BotCardProps> = ({
           <div className="space-y-0.5">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-extrabold text-slate-900 text-base">{bot.name}</h3>
+              {isMemoryExceeded && (
+                <span className="text-[10px] bg-rose-100 text-rose-800 font-extrabold px-2 py-0.5 rounded-full border border-rose-200">
+                  RAM Exceeded ({ramPercent}%)
+                </span>
+              )}
+              {isStorageExceeded && (
+                <span className="text-[10px] bg-rose-100 text-rose-800 font-extrabold px-2 py-0.5 rounded-full border border-rose-200">
+                  Storage Quota Full
+                </span>
+              )}
             </div>
             <p className="text-xs font-mono text-[#0088cc]">
               {bot.username}
@@ -168,8 +187,28 @@ export const BotCard: React.FC<BotCardProps> = ({
           </span>
         </div>
 
+        {/* Resource Exceeded Alert Notification */}
+        {(isMemoryExceeded || isStorageExceeded) && (
+          <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl flex items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-rose-800 font-medium">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>
+                {isMemoryExceeded
+                  ? `RAM limit reached (${ramPercent}%). Bot paused/stopped.`
+                  : `Storage quota full (${diskUsed} MB / ${planStorageMB} MB).`}
+              </span>
+            </div>
+            <button
+              onClick={() => onOpenLogs(bot)}
+              className="text-rose-700 font-bold hover:underline shrink-0 text-xs"
+            >
+              Logs →
+            </button>
+          </div>
+        )}
+
         {/* Friendly Error Notice */}
-        {(isError || bot.lastErrorFriendly) && (
+        {!(isMemoryExceeded || isStorageExceeded) && (isError || bot.lastErrorFriendly) && (
           <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 text-rose-800">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -184,30 +223,25 @@ export const BotCard: React.FC<BotCardProps> = ({
           </div>
         )}
 
-        {/* Clean Storage & Status Metrics */}
+        {/* Clean Storage, RAM & Status Metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs pt-1">
           <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-0.5">
             <span className="text-slate-400 text-[10px] uppercase font-bold block">Storage Used</span>
-            <div className="font-extrabold text-slate-800 flex items-center gap-1">
-              <HardDrive className="w-3.5 h-3.5 text-[#0088cc]" />
-              <span>{diskUsed} MB</span>
+            <div className={`font-extrabold flex items-center gap-1 ${isStorageExceeded ? 'text-rose-700 font-black' : 'text-slate-800'}`}>
+              <HardDrive className={`w-3.5 h-3.5 ${isStorageExceeded ? 'text-rose-600' : 'text-[#0088cc]'}`} />
+              <span>{diskUsed} MB / {planStorageMB} MB</span>
             </div>
           </div>
 
           <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 space-y-0.5">
-            <span className="text-slate-400 text-[10px] uppercase font-bold block">Mode</span>
-            <div className="font-extrabold text-slate-800 flex items-center gap-1">
-              {bot.webhookEnabled ? (
-                <>
-                  <Globe className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Webhook</span>
-                </>
-              ) : (
-                <>
-                  <Radio className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Polling</span>
-                </>
-              )}
+            <span className="text-slate-400 text-[10px] uppercase font-bold block">RAM Usage</span>
+            <div className={`font-extrabold flex items-center gap-1 ${
+              isMemoryExceeded ? 'text-rose-700 font-black' : ramPercent > 80 ? 'text-amber-700' : 'text-slate-800'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                !isRunning ? 'bg-slate-300' : isMemoryExceeded ? 'bg-rose-500 animate-pulse' : ramPercent > 80 ? 'bg-amber-500' : 'bg-emerald-500'
+              }`} />
+              <span>{ramPercent}% RAM</span>
             </div>
           </div>
 

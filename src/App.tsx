@@ -21,6 +21,7 @@ import { TermsPage } from './pages/TermsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { ContactPage } from './pages/ContactPage';
 import { WhyChooseUsPage } from './pages/WhyChooseUsPage';
+import { AdminPage } from './pages/AdminPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 // Toast icons
@@ -94,7 +95,7 @@ function MainRouter() {
     const isDashboardRoute =
       currentPath.startsWith('/dashboard') ||
       currentPath === '/dashboard' ||
-      Boolean(user && ['/configure', '/pricing', '/billing', '/docs', '/contact'].includes(currentPath));
+      Boolean(user && ['/admin', '/configure', '/pricing', '/billing', '/docs', '/contact'].includes(currentPath));
 
     const renderInnerPage = () => {
       if (currentPath === '/dashboard/bot') {
@@ -104,6 +105,9 @@ function MainRouter() {
       switch (currentPath) {
         case '/':
           return <LandingPage navigate={navigate} />;
+        case '/admin':
+        case '/dashboard/admin':
+          return <AdminPage navigate={navigate} />;
         case '/pricing':
           return user ? <BillingAndPlansPage navigate={navigate} /> : <PricingPage navigate={navigate} />;
         case '/billing':

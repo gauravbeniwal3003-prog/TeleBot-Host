@@ -51,13 +51,15 @@ import {
   Info,
 } from 'lucide-react';
 
-interface AdminPanelModalProps {
-  onClose: () => void;
+export interface AdminPanelModalProps {
+  onClose?: () => void;
+  embedded?: boolean;
+  navigate?: (path: string) => void;
 }
 
 type AdminTab = 'metrics' | 'users' | 'bots' | 'pricing' | 'payments' | 'system' | 'audit';
 
-export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => {
+export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, embedded = false, navigate }) => {
   const { user: currentAdmin, addToast } = useAuth();
   const [activeTab, setActiveTab] = useState<AdminTab>('metrics');
   const [loading, setLoading] = useState(true);
@@ -354,46 +356,56 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 md:p-6 animate-in fade-in">
-      <div className="bg-white w-full max-w-6xl h-[92vh] rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden text-slate-900">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950 text-white shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-bold text-base tracking-tight">TeleBot Host Cluster Administration & Security Portal</h3>
-                <span className="text-[10px] bg-amber-400/20 text-amber-300 border border-amber-400/40 font-mono px-2 py-0.5 rounded uppercase font-bold">
-                  Strict Admin Auth
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Authoritative multi-tenant orchestration, sandboxing control, financial ledger, and pricing engine
-              </p>
-            </div>
-          </div>
+  const handleClose = () => {
+    if (onClose) {
+      onClose();
+    } else if (navigate) {
+      navigate('/dashboard');
+    }
+  };
 
-          <div className="flex items-center gap-3">
+  const content = (
+    <div className={`bg-white w-full ${embedded ? 'max-w-7xl min-h-[88vh]' : 'max-w-6xl h-[92vh]'} rounded-2xl border border-slate-200 shadow-2xl flex flex-col overflow-hidden text-slate-900`}>
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950 text-white shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30">
+            <ShieldAlert className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-base tracking-tight">TeleBot Host Cluster Administration & Security Portal</h3>
+              <span className="text-[10px] bg-amber-400/20 text-amber-300 border border-amber-400/40 font-mono px-2 py-0.5 rounded uppercase font-bold">
+                Strict Admin Auth
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">
+              Authoritative multi-tenant orchestration, sandboxing control, financial ledger, and pricing engine
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={loadAdminData}
+            disabled={loading}
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+            title="Refresh all metrics"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh Data</span>
+          </button>
+          {(onClose || navigate) && (
             <button
-              onClick={loadAdminData}
-              disabled={loading}
-              className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-              title="Refresh all metrics"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh Data</span>
-            </button>
-            <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              title={embedded ? 'Return to Dashboard' : 'Close Panel'}
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
+          )}
         </div>
+      </div>
 
         {/* Tab Navigation */}
         <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-2 text-xs font-semibold overflow-x-auto shrink-0 gap-1">
@@ -2058,7 +2070,16 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose }) => 
             </div>
           </div>
         )}
-      </div>
+    </div>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 md:p-6 animate-in fade-in">
+      {content}
     </div>
   );
 };

@@ -109,11 +109,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
             {isAdmin && (
               <button
-                onClick={() => setShowAdminModal(true)}
+                onClick={() => navigate('/admin')}
                 className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-                <span className="hidden sm:inline">Admin</span>
+                <span className="hidden sm:inline">Admin Panel</span>
               </button>
             )}
 

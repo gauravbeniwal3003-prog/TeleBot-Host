@@ -28,7 +28,12 @@ import {
   TerminalSquare,
   Save,
   Info,
-  ShieldCheck
+  ShieldCheck,
+  Copy,
+  Check,
+  Activity,
+  Cpu,
+  Layers
 } from 'lucide-react';
 
 interface SingleBotWorkspacePageProps {
@@ -99,6 +104,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   const [fileToDelete, setFileToDelete] = useState<BotFileItem | null>(null);
   const [fileToRename, setFileToRename] = useState<BotFileItem | null>(null);
   const [renameValue, setRenameValue] = useState<string>('');
+  const [isCopiedLogs, setIsCopiedLogs] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -140,7 +146,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     if (!bot) return;
     setLoadingLogs(true);
     try {
-      const logRes = await api.getBotLogs(bot.id, { limit: 50 });
+      const logRes = await api.getBotLogs(bot.id, { limit: 100 });
       setLogs(logRes.logs || []);
     } catch {
       // ignore
@@ -149,17 +155,48 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     }
   };
 
+  const handleCopyAllLogs = () => {
+    if (!logs || logs.length === 0) {
+      addToast('info', 'No logs available to copy');
+      return;
+    }
+    
+    const formattedLogs = logs.map(l => {
+      const time = l.timestamp ? `[${new Date(l.timestamp).toLocaleTimeString()}]` : '';
+      const level = l.level ? `[${(l.level || 'info').toUpperCase()}]` : '';
+      return `${time} ${level} ${l.message || ''}`.trim();
+    }).join('\n');
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(formattedLogs);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = formattedLogs;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-999999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setIsCopiedLogs(true);
+      addToast('success', 'All console logs copied to clipboard!');
+      setTimeout(() => setIsCopiedLogs(false), 2500);
+    } catch (err) {
+      addToast('error', 'Failed to copy logs to clipboard');
+    }
+  };
+
   useEffect(() => {
-    if (bot && tab === 'files') {
+    if (bot) {
       fetchBotFilesAndStorage();
     }
     if (bot && tab === 'logs') {
       fetchBotLogs();
-      const interval = setInterval(fetchBotLogs, 5000);
+      const interval = setInterval(fetchBotLogs, 4000);
       return () => clearInterval(interval);
-    }
-    if (bot && tab === 'storage') {
-      fetchBotFilesAndStorage(); // Re-use this endpoint for storage summary
     }
   }, [bot?.id, tab]);
 
@@ -611,8 +648,251 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       trialHoursLeft = Math.max(0, Math.floor(diff / (1000 * 60 * 60)));
     }
 
+    // Resource & quota calculations
+    const planStorageMB = storageSummary?.totalStorageMB || (sub?.storage_limit_gb ? sub.storage_limit_gb * 1024 : 1024);
+    const usedStorageMB = storageSummary ? storageSummary.usedStorageMB : Math.round((bot.storageUsageMB || 25) * 10) / 10;
+    const remainingStorageMB = storageSummary ? storageSummary.remainingStorageMB : Math.max(0, Math.round((planStorageMB - usedStorageMB) * 10) / 10);
+    const storageUsagePercent = Math.min(100, Math.round((usedStorageMB / planStorageMB) * 1000) / 10);
+    const isStorageExceeded = usedStorageMB >= planStorageMB || storageSummary?.isOverQuota || storageUsagePercent >= 100;
+    const isStorageWarning = storageUsagePercent >= 85 && !isStorageExceeded;
+
+    // RAM in percentage ONLY (never mention 100mb anywhere!)
+    const ramLimit = bot.memoryLimitMB || 100;
+    const rawRamUsage = bot.memoryUsageMB || 0;
+    const isBotRunning = bot.status === 'running';
+    const ramPercent = isBotRunning ? Math.min(100, Math.round((rawRamUsage / ramLimit) * 100)) : 0;
+    const isMemoryExceeded = isBotRunning && (ramPercent >= 95 || (bot.lastErrorTechnical?.toLowerCase().includes('oom') || bot.lastError?.toLowerCase().includes('memory')));
+    const isMemoryWarning = isBotRunning && ramPercent >= 80 && !isMemoryExceeded;
+
     return (
       <div className="space-y-6 animate-in fade-in max-w-full">
+        {/* Resource Exceeded: Memory Alert Banner */}
+        {isMemoryExceeded && (
+          <div className="bg-rose-50 border-2 border-rose-400 p-5 rounded-2xl shadow-sm space-y-3 animate-in fade-in">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2.5 text-rose-800 font-black text-sm sm:text-base">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                <span>Memory Limit Exceeded ({ramPercent}%)</span>
+              </div>
+              <span className="px-2.5 py-0.5 bg-rose-200 text-rose-900 rounded-full text-[11px] font-bold">
+                Process Halted
+              </span>
+            </div>
+            <p className="text-xs text-rose-700 leading-relaxed font-medium">
+              Your bot has exceeded its allocated plan RAM capacity (<strong className="text-rose-950 font-bold">{ramPercent}%</strong>). 
+              The container engine was halted safely to maintain server stability. Please optimize memory loops in your code or upgrade your plan to increase RAM limits.
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <button
+                onClick={() => navigate(`/dashboard/bot?id=${bot.id}&tab=logs`)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+              >
+                Inspect Console Logs →
+              </button>
+              <button
+                onClick={() => navigate('/billing')}
+                className="px-4 py-2 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Upgrade Plan Capacity
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Resource Exceeded: Storage Alert Banner */}
+        {isStorageExceeded && (
+          <div className="bg-rose-50 border-2 border-rose-400 p-5 rounded-2xl shadow-sm space-y-3 animate-in fade-in">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2.5 text-rose-800 font-black text-sm sm:text-base">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                <span>Storage Quota Exceeded ({usedStorageMB.toFixed(1)} MB / {planStorageMB} MB)</span>
+              </div>
+              <span className="px-2.5 py-0.5 bg-rose-200 text-rose-900 rounded-full text-[11px] font-bold">
+                Writes Locked
+              </span>
+            </div>
+            <p className="text-xs text-rose-700 leading-relaxed font-medium">
+              Your bot is utilizing <strong className="text-rose-950 font-bold">{usedStorageMB.toFixed(1)} MB</strong> of your selected <strong className="text-rose-950 font-bold">{planStorageMB} MB</strong> plan storage ({storageUsagePercent}%). 
+              Uploading new files, creating backups, and writing SQLite database records are currently locked. Please clean up unused files or purchase add-on storage.
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <button
+                onClick={() => navigate(`/dashboard/bot?id=${bot.id}&tab=storage`)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer"
+              >
+                Buy Storage Add-on →
+              </button>
+              <button
+                onClick={() => navigate(`/dashboard/bot?id=${bot.id}&tab=files`)}
+                className="px-4 py-2 bg-white border border-rose-300 hover:bg-rose-100 text-rose-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Manage & Delete Files
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Real-time Plan Resource Utilization Card */}
+        <div className={`p-5 sm:p-6 rounded-2xl border transition-all ${
+          isMemoryExceeded || isStorageExceeded
+            ? 'bg-rose-50/40 border-rose-300 ring-2 ring-rose-200'
+            : isMemoryWarning || isStorageWarning
+            ? 'bg-amber-50/40 border-amber-300'
+            : 'bg-white border-slate-200 shadow-2xs'
+        } space-y-4`}>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className={`p-2 rounded-xl ${
+                isMemoryExceeded || isStorageExceeded
+                  ? 'bg-rose-100 text-rose-700'
+                  : 'bg-sky-50 text-[#0088cc]'
+              }`}>
+                <Activity className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+                  Plan Resource & Sandbox Health
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Live resource consumption vs. your selected hosting plan
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] font-bold px-3 py-1 rounded-full border ${
+                isMemoryExceeded || isStorageExceeded
+                  ? 'bg-rose-100 text-rose-800 border-rose-300'
+                  : isMemoryWarning || isStorageWarning
+                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}>
+                {isMemoryExceeded || isStorageExceeded
+                  ? '🚨 Resource Limit Exceeded'
+                  : isMemoryWarning || isStorageWarning
+                  ? '⚠️ High Resource Load'
+                  : '✓ Optimal Sandbox Status'}
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Storage Metric: exact MB utilized from plan */}
+            <div className={`p-4 rounded-xl border ${
+              isStorageExceeded
+                ? 'bg-rose-50 border-rose-300'
+                : isStorageWarning
+                ? 'bg-amber-50 border-amber-200'
+                : 'bg-slate-50 border-slate-200'
+            } space-y-2`}>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-600 uppercase text-[10px] flex items-center gap-1.5">
+                  <HardDrive className="w-3.5 h-3.5 text-[#0088cc]" />
+                  Storage Utilized
+                </span>
+                <span className={`font-black text-xs ${
+                  isStorageExceeded ? 'text-rose-700' : isStorageWarning ? 'text-amber-700' : 'text-slate-800'
+                }`}>
+                  {storageUsagePercent}%
+                </span>
+              </div>
+              <div className="text-lg font-black text-slate-900">
+                {usedStorageMB.toFixed(1)} MB <span className="text-xs font-semibold text-slate-400">/ {planStorageMB} MB</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    isStorageExceeded ? 'bg-rose-500' : isStorageWarning ? 'bg-amber-500' : 'bg-[#24A1DE]'
+                  }`}
+                  style={{ width: `${Math.min(100, storageUsagePercent)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                <span>{remainingStorageMB.toFixed(1)} MB remaining</span>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/dashboard/bot?id=${bot.id}&tab=storage`)}
+                  className="text-[#0088cc] hover:underline font-bold cursor-pointer"
+                >
+                  Manage →
+                </button>
+              </div>
+            </div>
+
+            {/* RAM Metric (strictly in percentage, never 100MB!) */}
+            <div className={`p-4 rounded-xl border ${
+              isMemoryExceeded
+                ? 'bg-rose-50 border-rose-300'
+                : isMemoryWarning
+                ? 'bg-amber-50 border-amber-200'
+                : 'bg-slate-50 border-slate-200'
+            } space-y-2`}>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-600 uppercase text-[10px] flex items-center gap-1.5">
+                  <Cpu className="w-3.5 h-3.5 text-purple-600" />
+                  RAM Allocation
+                </span>
+                <span className={`font-black text-xs ${
+                  isMemoryExceeded ? 'text-rose-700' : isMemoryWarning ? 'text-amber-700' : isBotRunning ? 'text-emerald-700' : 'text-slate-400'
+                }`}>
+                  {isBotRunning ? (isMemoryExceeded ? 'Exceeded' : isMemoryWarning ? 'Elevated' : 'Normal') : 'Idle'}
+                </span>
+              </div>
+              <div className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <span>{ramPercent}%</span>
+                <span className="text-xs font-normal text-slate-500">
+                  {isBotRunning ? 'active utilization' : '(bot stopped)'}
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    isMemoryExceeded ? 'bg-rose-500' : isMemoryWarning ? 'bg-amber-500' : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${Math.min(100, ramPercent)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                <span>{isBotRunning ? (isMemoryExceeded ? 'Limit reached' : 'Optimal performance') : 'No memory active'}</span>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/dashboard/bot?id=${bot.id}&tab=logs`)}
+                  className="text-purple-600 hover:underline font-bold cursor-pointer"
+                >
+                  Logs →
+                </button>
+              </div>
+            </div>
+
+            {/* CPU Virtual Core */}
+            <div className="p-4 rounded-xl border bg-slate-50 border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-600 uppercase text-[10px] flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                  CPU Virtual Core
+                </span>
+                <span className="font-black text-xs text-indigo-700">
+                  {isBotRunning ? 'Active' : 'Standby'}
+                </span>
+              </div>
+              <div className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <span>{isBotRunning ? (bot.cpuUsage || 1.2) : 0}%</span>
+                <span className="text-xs font-normal text-slate-500">core allocation</span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                  style={{ width: `${Math.min(100, isBotRunning ? (bot.cpuUsage || 2.5) : 0)}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
+                <span>cgroups v2 isolcpus</span>
+                <span className="text-emerald-600 font-bold">Dedicated</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {trialNotStarted && (
           <div className="bg-sky-50 border border-sky-200 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-sm">
             <div>
@@ -1368,8 +1648,49 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     </div>
   );
 
-  const renderLogsView = () => (
+  const renderLogsView = () => {
+    // Quota and resource limits
+    const userSub = user?.subscription;
+    const planStorageMB = storageSummary?.totalStorageMB || (userSub?.storage_limit_gb ? userSub.storage_limit_gb * 1024 : 1024);
+    const usedStorageMB = storageSummary ? storageSummary.usedStorageMB : Math.round((bot.storageUsageMB || 25) * 10) / 10;
+    const storageUsagePercent = Math.min(100, Math.round((usedStorageMB / planStorageMB) * 1000) / 10);
+    const isStorageExceeded = usedStorageMB >= planStorageMB || storageSummary?.isOverQuota || storageUsagePercent >= 100;
+
+    // RAM in percentage ONLY (never mention 100mb anywhere!)
+    const ramLimit = bot.memoryLimitMB || 100;
+    const rawRamUsage = bot.memoryUsageMB || 0;
+    const isBotRunning = bot.status === 'running';
+    const ramPercent = isBotRunning ? Math.min(100, Math.round((rawRamUsage / ramLimit) * 100)) : 0;
+    const isMemoryExceeded = isBotRunning && (ramPercent >= 95 || (bot.lastErrorTechnical?.toLowerCase().includes('oom') || bot.lastError?.toLowerCase().includes('memory')));
+
+    return (
     <div className="space-y-4 animate-in fade-in h-full flex flex-col">
+      {/* Resource Limit Exceeded Alert in Console */}
+      {(isMemoryExceeded || isStorageExceeded) && (
+        <div className="bg-rose-950/80 border-2 border-rose-500 rounded-2xl p-4 text-rose-100 shadow-xl space-y-2 animate-in fade-in">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-rose-300 font-bold text-sm">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+              <span>
+                {isMemoryExceeded && isStorageExceeded
+                  ? 'Plan Memory & Storage Limits Exceeded'
+                  : isMemoryExceeded
+                  ? `Plan RAM Limit Exceeded (${ramPercent}%)`
+                  : `Plan Storage Quota Exceeded (${usedStorageMB.toFixed(1)} MB / ${planStorageMB} MB)`}
+              </span>
+            </div>
+            <span className="text-[10px] px-2.5 py-0.5 bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-full font-mono font-bold">
+              CRITICAL
+            </span>
+          </div>
+          <p className="text-xs text-rose-200 leading-relaxed font-sans">
+            {isMemoryExceeded
+              ? `Your bot runtime consumed ${ramPercent}% of allocated memory. The process was stopped to prevent host memory exhaustion. Optimize code memory usage or upgrade your plan.`
+              : `Your filesystem storage utilization has reached ${usedStorageMB.toFixed(1)} MB of your ${planStorageMB} MB plan quota. Delete unneeded files or purchase a storage add-on.`}
+          </p>
+        </div>
+      )}
+
       {/* Groq AI Diagnosis Banner if active */}
       {groqDiagnosis && (
         <div className="bg-slate-900 border border-orange-500/50 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -1437,12 +1758,40 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
         </div>
       )}
 
-      <div className="flex items-center justify-between bg-slate-900 p-4 rounded-t-2xl border-b border-slate-800">
+      <div className="flex flex-wrap items-center justify-between bg-slate-900 p-4 rounded-t-2xl border-b border-slate-800 gap-2">
         <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
           <Terminal className="w-4 h-4 text-[#0088cc]" />
-          Real-time Console Stream
+          <span>Real-time Console Stream</span>
+          <span className="text-[11px] font-mono text-slate-400 font-normal">
+            ({logs.length} entries)
+          </span>
         </h3>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 1-Click Copy All Logs Button */}
+          <button
+            type="button"
+            onClick={handleCopyAllLogs}
+            disabled={logs.length === 0}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs border ${
+              isCopiedLogs
+                ? 'bg-emerald-600 border-emerald-500 text-white'
+                : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200 hover:text-white disabled:opacity-50'
+            }`}
+            title="Copy all console log lines to clipboard"
+          >
+            {isCopiedLogs ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-white" />
+                <span>Copied All Logs!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5 text-slate-300" />
+                <span>Copy All Logs</span>
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => handleDiagnoseWithGroq()}
@@ -1458,15 +1807,16 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
             ) : (
               <>
                 <Sparkles className="w-3 h-3" />
-                <span>Diagnose with Groq AI</span>
+                <span>Diagnose with AI</span>
               </>
             )}
           </button>
+          
           <span className="text-[10px] text-emerald-400 font-bold uppercase flex items-center gap-1.5 ml-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             Connected
           </span>
-          <button onClick={fetchBotLogs} className="text-slate-400 hover:text-white cursor-pointer ml-1" title="Refresh">
+          <button onClick={fetchBotLogs} className="text-slate-400 hover:text-white cursor-pointer ml-1 p-1 hover:bg-slate-800 rounded-lg transition-colors" title="Refresh">
             <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} />
           </button>
         </div>
@@ -1519,6 +1869,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       </div>
     </div>
   );
+  };
 
   const handlePurchaseAddon = async () => {
     setProcessingAddon(true);
