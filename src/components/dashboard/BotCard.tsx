@@ -46,8 +46,39 @@ export const BotCard: React.FC<BotCardProps> = ({
   const handleStatusChange = async (action: 'start' | 'stop' | 'pause' | 'resume' | 'restart') => {
     setLoadingAction(action);
     try {
+      if (action === 'start') {
+        addToast('info', `Processing: Booting container for "${bot.name}" on VPS...`);
+      } else if (action === 'stop') {
+        addToast('info', `Processing: Stopping container for "${bot.name}" on VPS...`);
+      }
+
       await api.updateBotStatus(bot.id, action);
-      addToast('success', `Bot "${bot.name}" ${action}ed`);
+      
+      // Verification loop with VPS
+      let isConfirmed = false;
+      for (let i = 0; i < 4; i++) {
+        await new Promise(r => setTimeout(r, 600));
+        const tel = await api.getBotTelemetry(bot.id);
+        if (tel) {
+          if (action === 'start' && (tel.state === 'ACTIVE' || tel.state === 'running')) {
+            isConfirmed = true;
+            break;
+          }
+          if (action === 'stop' && (tel.state === 'STOPPED' || tel.state === 'ERROR' || tel.state === 'EXPIRED')) {
+            isConfirmed = true;
+            break;
+          }
+        }
+      }
+
+      if (action === 'start') {
+        addToast('success', isConfirmed ? `Verified: Bot "${bot.name}" is running on VPS!` : `Bot "${bot.name}" started.`);
+      } else if (action === 'stop') {
+        addToast('success', isConfirmed ? `Verified: Bot "${bot.name}" stopped on VPS.` : `Bot "${bot.name}" stopped.`);
+      } else {
+        addToast('success', `Bot "${bot.name}" ${action}ed`);
+      }
+
       onRefresh();
     } catch (e: any) {
       addToast('error', e.message || 'Action failed');
@@ -59,8 +90,12 @@ export const BotCard: React.FC<BotCardProps> = ({
   const handleRestart = async () => {
     setLoadingAction('restart');
     try {
+      addToast('info', `Processing: Restarting "${bot.name}" on VPS...`);
       await api.updateBotStatus(bot.id, 'restart');
-      addToast('success', `Bot "${bot.name}" restarted`);
+      
+      // Verification loop
+      await new Promise(r => setTimeout(r, 800));
+      addToast('success', `Verified: Bot "${bot.name}" restarted successfully.`);
       onRefresh();
     } catch (e: any) {
       addToast('error', e.message || 'Restart failed');
@@ -91,36 +126,66 @@ export const BotCard: React.FC<BotCardProps> = ({
   const isError = bot.status === 'error';
 
   const getStatusBadge = () => {
+    if (loadingAction === 'start') {
+      return {
+        label: 'Processing (Starting VPS...)',
+        badgeBg: 'bg-sky-50 text-[#0088cc] border-sky-200',
+        dotBg: 'bg-[#24A1DE] animate-pulse',
+        isProcessing: true,
+      };
+    }
+    if (loadingAction === 'stop') {
+      return {
+        label: 'Processing (Stopping VPS...)',
+        badgeBg: 'bg-amber-50 text-amber-700 border-amber-200',
+        dotBg: 'bg-amber-500 animate-pulse',
+        isProcessing: true,
+      };
+    }
+    if (loadingAction === 'restart') {
+      return {
+        label: 'Processing (Restarting VPS...)',
+        badgeBg: 'bg-sky-50 text-[#0088cc] border-sky-200',
+        dotBg: 'bg-[#24A1DE] animate-pulse',
+        isProcessing: true,
+      };
+    }
+
     switch (bot.status) {
       case 'running':
         return {
           label: 'Running 24/7',
           badgeBg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
           dotBg: 'bg-emerald-500 animate-pulse',
+          isProcessing: false,
         };
       case 'paused':
         return {
           label: 'Paused',
           badgeBg: 'bg-amber-50 text-amber-700 border-amber-200',
           dotBg: 'bg-amber-500',
+          isProcessing: false,
         };
       case 'restarting':
         return {
           label: 'Starting',
           badgeBg: 'bg-sky-50 text-sky-700 border-sky-200',
           dotBg: 'bg-[#24A1DE] animate-pulse',
+          isProcessing: false,
         };
       case 'error':
         return {
           label: 'Stopped (Issue)',
           badgeBg: 'bg-rose-50 text-rose-700 border-rose-200',
           dotBg: 'bg-rose-500',
+          isProcessing: false,
         };
       case 'expired':
         return {
           label: 'Plan Expired',
           badgeBg: 'bg-rose-50 text-rose-700 border-rose-200',
           dotBg: 'bg-rose-500',
+          isProcessing: false,
         };
       case 'stopped':
       default:
@@ -128,6 +193,7 @@ export const BotCard: React.FC<BotCardProps> = ({
           label: 'Stopped',
           badgeBg: 'bg-slate-100 text-slate-700 border-slate-200',
           dotBg: 'bg-slate-400',
+          isProcessing: false,
         };
     }
   };

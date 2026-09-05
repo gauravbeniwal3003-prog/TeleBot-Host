@@ -2040,6 +2040,16 @@ class RelationalDatabase {
       projectId: order.project_id,
     });
 
+    // Reactivate any expired bots back to stopped state so customer can start them immediately
+    const userBots = this.getUserBots(order.user_id);
+    for (const b of userBots) {
+      if (b.status === 'expired') {
+        b.status = 'stopped';
+        b.last_error = undefined;
+        b.updated_at = now;
+      }
+    }
+
     this.save();
 
     this.logActivity({

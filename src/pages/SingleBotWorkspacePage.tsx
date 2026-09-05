@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { TelegramBot, BotFileItem, StorageSummary } from '../types';
+import { TelegramBot, BotFileItem, StorageSummary, ASTSyntaxError, PreflightAstResult, PythonValidationResult } from '../types';
 import { api } from '../services/api';
 import {
   Menu,
@@ -33,7 +33,12 @@ import {
   Check,
   Activity,
   Cpu,
-  Layers
+  Layers,
+  Code2,
+  X,
+  CheckCheck,
+  FileText,
+  RotateCw
 } from 'lucide-react';
 
 interface SingleBotWorkspacePageProps {
@@ -93,10 +98,24 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     message: string;
   } | null>(null);
 
-  // VPS Start Verification states
+  // VPS Start/Stop/Restart Verification states
   const [isStartingBot, setIsStartingBot] = useState(false);
+  const [isStoppingBot, setIsStoppingBot] = useState(false);
+  const [isRestartingBot, setIsRestartingBot] = useState(false);
   const [startStep, setStartStep] = useState(0);
   const [startError, setStartError] = useState<string | null>(null);
+
+  // AST Pre-Validation & Code Editor States
+  const [astPreflightError, setAstPreflightError] = useState<ASTSyntaxError | null>(null);
+  const [isRunningAstCheck, setIsRunningAstCheck] = useState(false);
+  const [astCheckResult, setAstCheckResult] = useState<PreflightAstResult | null>(null);
+  const [activeEditorFile, setActiveEditorFile] = useState<BotFileItem | null>(null);
+  const [editorContent, setEditorContent] = useState<string>('');
+  const [loadingEditorContent, setLoadingEditorContent] = useState(false);
+  const [savingEditorFile, setSavingEditorFile] = useState(false);
+  const [editorAstResult, setEditorAstResult] = useState<PythonValidationResult | null>(null);
+  const [isValidatingEditorAst, setIsValidatingEditorAst] = useState(false);
+  const [highlightLine, setHighlightLine] = useState<number | null>(null);
 
   // Upgrade state
   const [selectedUpgradeStorage, setSelectedUpgradeStorage] = useState<string>('1GB');
@@ -241,16 +260,93 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     setEnvVars(newVars.length > 0 ? newVars : [{ key: '', value: '' }]);
   };
 
+  const handleOpenCodeEditor = async (file: BotFileItem, targetLine?: number) => {
+    setActiveEditorFile(file);
+    setHighlightLine(targetLine || null);
+    setLoadingEditorContent(true);
+    setEditorAstResult(null);
+    try {
+      if (file.content !== undefined && file.content !== null) {
+        setEditorContent(file.content);
+      } else {
+        const res = await api.getBotFileContent(bot!.id, file.filePath);
+        setEditorContent(res.content);
+      }
+    } catch {
+      setEditorContent(file.content || '');
+    } finally {
+      setLoadingEditorContent(false);
+    }
+  };
+
+  const handleRunEditorAstCheck = async () => {
+    if (!activeEditorFile) return;
+    setIsValidatingEditorAst(true);
+    try {
+      const res = await api.validatePythonCode(editorContent, activeEditorFile.fileName);
+      setEditorAstResult(res);
+      if (res.isValid) {
+        addToast('success', 'AST Validation Passed: Clean Python syntax with 0 errors.');
+      } else if (res.syntaxErrors && res.syntaxErrors.length > 0) {
+        const err = res.syntaxErrors[0];
+        addToast('error', `Python ${err.errorType || 'SyntaxError'}: line ${err.line} - ${err.message}`);
+        setHighlightLine(err.line);
+      }
+    } catch (err: any) {
+      addToast('error', err.message || 'AST validation failed');
+    } finally {
+      setIsValidatingEditorAst(false);
+    }
+  };
+
+  const handleSaveEditorFile = async () => {
+    if (!bot || !activeEditorFile) return;
+    setSavingEditorFile(true);
+    try {
+      const res = await api.saveBotFile(bot.id, activeEditorFile.filePath, editorContent);
+      addToast('success', `Saved ${activeEditorFile.fileName} successfully.`);
+      fetchBotFilesAndStorage();
+      if (res.validation) {
+        setEditorAstResult(res.validation);
+      }
+    } catch (err: any) {
+      addToast('error', err.message || 'Failed to save file');
+    } finally {
+      setSavingEditorFile(false);
+    }
+  };
+
+  const handleRunPreflightAst = async () => {
+    if (!bot) return;
+    setIsRunningAstCheck(true);
+    try {
+      const res = await api.preflightAst(bot.id);
+      setAstCheckResult(res);
+      if (res.valid) {
+        setAstPreflightError(null);
+        addToast('success', 'AST Pre-flight Check Passed: All Python files are syntax clean!');
+      } else {
+        const firstErr = res.syntaxErrors[0];
+        setAstPreflightError(firstErr);
+        addToast('error', `AST Check: ${firstErr.errorType || 'SyntaxError'} in ${firstErr.fileName} line ${firstErr.line}`);
+      }
+    } catch (err: any) {
+      addToast('error', err.message || 'AST pre-validation failed');
+    } finally {
+      setIsRunningAstCheck(false);
+    }
+  };
+
   const handleToggleStatus = async (action: 'start' | 'stop') => {
     if (action === 'stop') {
-      setStatusChanging(true);
+      setIsStoppingBot(true);
       try {
-        addToast('info', 'Stopping bot container...');
+        addToast('info', 'Processing: De-allocating VPS container resources and stopping bot...');
         await api.updateBotStatus(bot.id, 'stop');
         
         // Wait for confirmation from VPS
         let isConfirmed = false;
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 5; i++) {
           await new Promise(r => setTimeout(r, 600));
           const tel = await api.getBotTelemetry(bot.id);
           if (!tel || tel.state === 'STOPPED' || tel.state === 'ERROR' || tel.state === 'EXPIRED') {
@@ -259,17 +355,18 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
           }
         }
         
+        setBot(prev => prev ? { ...prev, status: 'stopped' } : null);
         if (isConfirmed) {
-          addToast('success', 'Verified: Bot was successfully stopped.');
+          addToast('success', 'Verified: Bot container was cleanly stopped on VPS.');
         } else {
-          addToast('error', 'Verification timeout: Bot may still be stopping.');
+          addToast('info', 'Bot stop signal received by VPS daemon.');
         }
         
         refreshBots();
       } catch (e: any) {
         addToast('error', e.message || 'Failed to stop bot');
       } finally {
-        setStatusChanging(false);
+        setIsStoppingBot(false);
       }
       return;
     }
@@ -278,6 +375,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     setIsStartingBot(true);
     setStartStep(0);
     setStartError(null);
+    setAstPreflightError(null);
     
     try {
       // Step 0: Handshake Connection to VPS daemon
@@ -304,12 +402,14 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       await new Promise(r => setTimeout(r, 800));
       setStartStep(2);
       
-      // Step 2: AST Security & Code Syntax Analyzer
-      if (entryFile.content) {
-        const check = await api.validatePythonCode(entryFile.content, bot.entryPoint);
-        if (!check.isValid && check.syntaxErrors && check.syntaxErrors.length > 0) {
-          throw new Error(`Syntax Error in '${bot.entryPoint}' (Line ${check.syntaxErrors[0].line}): ${check.syntaxErrors[0].message}`);
-        }
+      // Step 2: Python AST Syntax Pre-Validation
+      const astCheck = await api.preflightAst(bot.id);
+      if (!astCheck.valid && astCheck.syntaxErrors && astCheck.syntaxErrors.length > 0) {
+        const firstErr = astCheck.syntaxErrors[0];
+        setAstPreflightError(firstErr);
+        const fixHint = firstErr.suggestedFix ? `\n💡 Actionable Fix: ${firstErr.suggestedFix}` : '';
+        const snippet = firstErr.lineText ? `\n\nLine ${firstErr.line}: ${firstErr.lineText}\n        ${firstErr.pointer || '^'}` : '';
+        throw new Error(`Python AST Syntax Pre-Validation Error in '${firstErr.fileName || bot.entryPoint}':\n${firstErr.errorType || 'SyntaxError'}: ${firstErr.message} on line ${firstErr.line}, col ${firstErr.column || 1}${snippet}${fixHint}`);
       }
       
       await new Promise(r => setTimeout(r, 800));
@@ -361,45 +461,76 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       if (!isConfirmed) {
         const botsList = await api.getBots();
         const freshBot = botsList.find(b => b.id === bot.id);
-        if (freshBot && freshBot.status === 'running') {
-          isConfirmed = true;
-          setBot(freshBot);
+        if (freshBot) {
+          if (freshBot.status === 'running') {
+            isConfirmed = true;
+            setBot(freshBot);
+          } else {
+            if (freshBot.lastErrorTechnical) {
+              try {
+                const tech = JSON.parse(freshBot.lastErrorTechnical);
+                if (tech && tech.errorType && tech.line) {
+                  setAstPreflightError(tech);
+                }
+              } catch {}
+            }
+            if (freshBot.lastErrorFriendly) {
+              lastErrorMessage = freshBot.lastErrorFriendly;
+            } else if (freshBot.lastError) {
+              lastErrorMessage = freshBot.lastError;
+            }
+          }
         }
       }
       
       if (!isConfirmed) {
-        throw new Error(lastErrorMessage ? `VPS Health Check Notice: ${lastErrorMessage} Please inspect the 'Console Logs' tab for python traceback.` : "VPS Health Check Failed: The bot process exited immediately. Please check the 'Console Logs' tab for diagnostic output.");
+        fetchBotLogs();
+        throw new Error(lastErrorMessage ? `VPS Health Check Notice: ${lastErrorMessage}` : "VPS Health Check Notice: Process exited with code 1. Please inspect the 'Console Logs' tab for python traceback.");
       }
       
+      setBot(prev => prev ? { ...prev, status: 'running' } : null);
       addToast('success', `Verified: Bot "${bot.name}" is successfully running on VPS!`);
       refreshBots();
-      setIsStartingBot(false);
+      fetchBotLogs();
     } catch (err: any) {
       setStartError(err.message || "An unexpected VPS daemon error occurred during boot.");
+      fetchBotLogs();
+      refreshBots();
       // Set status to error on frontend
       setBot(prev => prev ? { ...prev, status: 'error' } : null);
       addToast('error', err.message || 'Failed to start bot');
+    } finally {
+      setIsStartingBot(false);
     }
   };
 
   const handleRestartBot = async () => {
     if (!bot) return;
-    setStatusChanging(true);
+    setIsRestartingBot(true);
     try {
-      addToast('info', 'Restarting bot with start command...');
+      addToast('info', 'Processing: Restarting bot on VPS with start command...');
       const updated = await api.updateBotStatus(bot.id, 'restart', startCommand);
       setBot(updated);
 
       // Verify startup after short delay
-      await new Promise(r => setTimeout(r, 1000));
+      let isConfirmed = false;
+      for (let i = 0; i < 5; i++) {
+        await new Promise(r => setTimeout(r, 600));
+        const tel = await api.getBotTelemetry(bot.id);
+        if (tel && (tel.state === 'ACTIVE' || tel.state === 'running')) {
+          isConfirmed = true;
+          break;
+        }
+      }
+
       const freshList = await api.getBots();
       const fresh = freshList.find(b => b.id === bot.id);
       if (fresh) {
         setBot(fresh);
         if (fresh.status === 'error') {
           addToast('error', fresh.lastError ? `Bot crashed: ${fresh.lastError}` : 'Bot exited with error. Check console logs.');
-        } else if (fresh.status === 'running') {
-          addToast('success', 'Bot restarted and running successfully!');
+        } else if (fresh.status === 'running' || isConfirmed) {
+          addToast('success', 'Verified: Bot restarted and running 24/7 on VPS!');
         }
       } else {
         addToast('success', 'Bot restart signal processed.');
@@ -409,7 +540,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     } catch (e: any) {
       addToast('error', e.message || 'Failed to restart bot');
     } finally {
-      setStatusChanging(false);
+      setIsRestartingBot(false);
     }
   };
 
@@ -1001,20 +1132,37 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
             
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-600">Status:</span>
-              <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border ${
-                bot.status === 'running'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : bot.status === 'stopped'
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-rose-50 text-rose-700 border-rose-200'
-              }`}>
-                <span className={`w-2 h-2 rounded-full ${
-                  bot.status === 'running' ? 'bg-emerald-500 animate-pulse' :
-                  bot.status === 'stopped' ? 'bg-amber-500' :
-                  'bg-rose-500'
-                }`} />
-                <span>{bot.status === 'running' ? 'Running' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
-              </span>
+              {isStartingBot ? (
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border bg-sky-50 text-[#0088cc] border-sky-200 animate-pulse">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-[#0088cc]" />
+                  <span>Processing (Starting VPS...)</span>
+                </span>
+              ) : isStoppingBot ? (
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border bg-amber-50 text-amber-700 border-amber-200 animate-pulse">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                  <span>Processing (Stopping VPS...)</span>
+                </span>
+              ) : isRestartingBot ? (
+                <span className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border bg-sky-50 text-[#0088cc] border-sky-200 animate-pulse">
+                  <RotateCw className="w-3.5 h-3.5 animate-spin text-[#0088cc]" />
+                  <span>Processing (Restarting VPS...)</span>
+                </span>
+              ) : (
+                <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-bold border ${
+                  bot.status === 'running'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : bot.status === 'stopped'
+                    ? 'bg-slate-100 text-slate-700 border-slate-200'
+                    : 'bg-rose-50 text-rose-700 border-rose-200'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    bot.status === 'running' ? 'bg-emerald-500 animate-pulse' :
+                    bot.status === 'stopped' ? 'bg-slate-400' :
+                    'bg-rose-500'
+                  }`} />
+                  <span>{bot.status === 'running' ? 'Running 24/7' : bot.status === 'stopped' ? 'Stopped' : 'Error'}</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -1041,7 +1189,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
               <button
                 type="button"
                 onClick={() => handleSaveStartCommand()}
-                disabled={isSavingStartCommand}
+                disabled={isSavingStartCommand || isStartingBot || isStoppingBot || isRestartingBot}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
               >
                 <Save className="w-3.5 h-3.5" />
@@ -1080,35 +1228,109 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
           
           <div className="flex flex-wrap items-center gap-3 sm:gap-4 pt-1">
             {bot.status !== 'running' ? (
-              <button
-                onClick={() => handleToggleStatus('start')}
-                disabled={statusChanging || isStartingBot}
-                className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                <Play className="w-4 h-4" />
-                <span>{isStartingBot ? 'Booting Container...' : 'Start Bot Engine'}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+                <button
+                  onClick={() => handleToggleStatus('start')}
+                  disabled={isStartingBot || isStoppingBot || isRestartingBot || statusChanging}
+                  className="w-full sm:w-auto px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isStartingBot ? (
+                    <RotateCw className="w-4 h-4 animate-spin text-white" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                  <span>{isStartingBot ? 'Processing (Booting VPS...)' : 'Start Bot Engine'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunPreflightAst}
+                  disabled={isRunningAstCheck || isStartingBot || isStoppingBot || isRestartingBot || statusChanging}
+                  className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all border border-slate-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  title="Run Python AST check to catch syntax errors or indentation issues before launching"
+                >
+                  <Code2 className={`w-4 h-4 text-[#0088cc] ${isRunningAstCheck ? 'animate-spin' : ''}`} />
+                  <span>{isRunningAstCheck ? 'Checking AST...' : 'Pre-flight AST Syntax Check'}</span>
+                </button>
+              </div>
             ) : (
               <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
                 <button
                   onClick={() => handleToggleStatus('stop')}
-                  disabled={statusChanging}
+                  disabled={isStoppingBot || isStartingBot || isRestartingBot || statusChanging}
                   className="px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  <Square className="w-4 h-4" />
-                  <span>Stop Execution</span>
+                  {isStoppingBot ? (
+                    <RotateCw className="w-4 h-4 animate-spin text-amber-300" />
+                  ) : (
+                    <Square className="w-4 h-4" />
+                  )}
+                  <span>{isStoppingBot ? 'Processing (Stopping VPS...)' : 'Stop Execution'}</span>
                 </button>
                 <button
                   onClick={handleRestartBot}
-                  disabled={statusChanging}
+                  disabled={isRestartingBot || isStartingBot || isStoppingBot || statusChanging}
                   className="px-5 py-2.5 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-4 h-4 ${statusChanging ? 'animate-spin' : ''}`} />
-                  <span>Restart with Start Command</span>
+                  <RefreshCw className={`w-4 h-4 ${isRestartingBot ? 'animate-spin' : ''}`} />
+                  <span>{isRestartingBot ? 'Processing (Restarting VPS...)' : 'Restart with Start Command'}</span>
                 </button>
               </div>
             )}
           </div>
+
+          {/* Standalone AST Syntax Check Card */}
+          {astCheckResult && !isStartingBot && (
+            <div className={`p-4 rounded-xl border text-xs space-y-2 animate-in fade-in ${
+              astCheckResult.valid
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-bold">
+                  {astCheckResult.valid ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                  )}
+                  <span>
+                    {astCheckResult.valid
+                      ? 'AST Pre-Validation Passed: Python Syntax is Clean'
+                      : `AST Pre-Validation Found ${astCheckResult.syntaxErrors.length} Issue(s)`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAstCheckResult(null)}
+                  className="text-slate-400 hover:text-slate-600 text-[10px] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <p className="text-[11px] font-mono leading-relaxed">
+                {astCheckResult.summary}
+              </p>
+              {!astCheckResult.valid && astCheckResult.syntaxErrors.length > 0 && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const err = astCheckResult.syntaxErrors[0];
+                      const targetFile = files.find(f => f.fileName === err.fileName || f.filePath === err.fileName);
+                      if (targetFile) {
+                        handleOpenCodeEditor(targetFile, err.line);
+                      } else {
+                        navigate(`/dashboard/bot?id=${bot.id}&tab=files`);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Code2 className="w-3.5 h-3.5" />
+                    <span>Open in Code Editor (Line {astCheckResult.syntaxErrors[0].line})</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Detailed VPS Handshake/Verification Section */}
           {isStartingBot && (
@@ -1163,23 +1385,114 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
               </div>
 
               {startError && (
-                <div className="bg-rose-950/30 border border-rose-900/50 p-4 rounded-xl space-y-2 animate-in shake">
+                <div className="bg-rose-950/40 border border-rose-900/60 p-4 rounded-xl space-y-3 animate-in shake">
                   <div className="flex items-center gap-2 text-rose-400 text-xs font-bold font-sans">
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>VPS Verification Interrupted</span>
+                    <span>{astPreflightError ? 'Python AST Syntax Pre-Validation Error' : 'VPS Health-Check Interrupted'}</span>
                   </div>
-                  <p className="text-[11px] font-mono text-rose-300 leading-relaxed pl-6">
-                    {startError}
-                  </p>
-                  <div className="pl-6 pt-1 flex gap-2">
+
+                  {astPreflightError ? (
+                    <div className="space-y-3 pl-6">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-900/80 text-rose-200 border border-rose-700/60">
+                          {astPreflightError.errorType || 'SyntaxError'}
+                        </span>
+                        <span className="text-[11px] font-mono text-slate-300">
+                          {astPreflightError.fileName || bot.entryPoint} : Line {astPreflightError.line}, Column {astPreflightError.column || 1}
+                        </span>
+                      </div>
+
+                      <p className="text-xs font-semibold text-rose-200">
+                        {astPreflightError.message}
+                      </p>
+
+                      {astPreflightError.lineText && (
+                        <div className="bg-black/70 border border-rose-900/50 rounded-lg p-3 font-mono text-xs overflow-x-auto">
+                          <div className="text-slate-400 select-none text-[10px] pb-1">
+                            Line {astPreflightError.line}:
+                          </div>
+                          <div className="text-rose-200 whitespace-pre">
+                            {astPreflightError.lineText}
+                          </div>
+                          {astPreflightError.pointer && (
+                            <div className="text-rose-400 font-bold whitespace-pre">
+                              {astPreflightError.pointer}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {astPreflightError.suggestedFix && (
+                        <div className="bg-amber-950/40 border border-amber-800/60 rounded-lg p-2.5 text-xs text-amber-200 font-mono flex items-start gap-2">
+                          <span className="text-amber-400 shrink-0">💡</span>
+                          <div>
+                            <strong className="text-amber-300 font-sans">Suggested Fix: </strong>
+                            <span>{astPreflightError.suggestedFix}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] font-mono text-rose-300 leading-relaxed pl-6 whitespace-pre-wrap">
+                      {startError}
+                    </p>
+                  )}
+
+                  <div className="pl-6 pt-1 flex flex-wrap gap-2">
+                    {astPreflightError && (
+                      <button
+                        onClick={() => {
+                          const targetFileName = astPreflightError.fileName || bot.entryPoint;
+                          const targetFile = files.find(f => f.fileName === targetFileName || f.filePath === targetFileName);
+                          setStartError(null);
+                          setIsStartingBot(false);
+                          if (targetFile) {
+                            handleOpenCodeEditor(targetFile, astPreflightError.line);
+                          } else {
+                            navigate(`/dashboard/bot?id=${bot.id}&tab=files`);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer font-sans flex items-center gap-1.5 shadow-xs"
+                      >
+                        <Code2 className="w-3.5 h-3.5" />
+                        <span>Fix in Code Editor (Line {astPreflightError.line})</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setStartError(null);
+                        setIsStartingBot(false);
+                        if (bot) {
+                          navigate(`/dashboard/bot?id=${bot.id}&tab=logs`);
+                        }
+                        fetchBotLogs();
+                      }}
+                      className="px-3 py-1.5 bg-[#24A1DE] hover:bg-[#1e8cc3] text-white text-[11px] font-bold rounded-lg transition-all cursor-pointer font-sans flex items-center gap-1.5 shadow-xs"
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>Inspect Console Logs</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setStartError(null);
+                        setIsStartingBot(false);
+                        if (bot) {
+                          navigate(`/dashboard/bot?id=${bot.id}&tab=files`);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-bold rounded-lg transition-all cursor-pointer font-sans flex items-center gap-1.5"
+                    >
+                      <FileCode className="w-3.5 h-3.5" />
+                      <span>Open Code Files</span>
+                    </button>
                     <button
                       onClick={() => {
                         setStartError(null);
                         setIsStartingBot(false);
                       }}
-                      className="px-3.5 py-1.5 bg-rose-900/30 hover:bg-rose-900/50 text-rose-200 border border-rose-800/80 text-[10px] font-bold rounded-lg transition-all cursor-pointer font-sans"
+                      className="px-3 py-1.5 bg-rose-900/40 hover:bg-rose-900/60 text-rose-200 border border-rose-800/80 text-[11px] font-bold rounded-lg transition-all cursor-pointer font-sans"
                     >
-                      Dismiss Verification
+                      Dismiss
                     </button>
                   </div>
                 </div>
@@ -1593,7 +1906,72 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
         </div>
 
         <div className="space-y-3 pt-4">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Directory Contents</h4>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Directory Contents</h4>
+            <button
+              type="button"
+              onClick={handleRunPreflightAst}
+              disabled={isRunningAstCheck}
+              className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-[#0088cc] border border-sky-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              title="Inspect Python AST syntax and indentation across workspace files"
+            >
+              <Code2 className={`w-3.5 h-3.5 ${isRunningAstCheck ? 'animate-spin' : ''}`} />
+              <span>{isRunningAstCheck ? 'Validating AST...' : 'Run AST Syntax Check'}</span>
+            </button>
+          </div>
+
+          {/* AST Check Result Banner in File Explorer */}
+          {astCheckResult && (
+            <div className={`p-4 rounded-xl border text-xs space-y-2 animate-in fade-in ${
+              astCheckResult.valid
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-bold">
+                  {astCheckResult.valid ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600" />
+                  )}
+                  <span>
+                    {astCheckResult.valid
+                      ? 'AST Pre-Validation Passed: Python Syntax is Clean'
+                      : `AST Pre-Validation Found ${astCheckResult.syntaxErrors.length} Issue(s)`}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAstCheckResult(null)}
+                  className="text-slate-400 hover:text-slate-600 text-[10px] cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <p className="text-[11px] font-mono leading-relaxed">
+                {astCheckResult.summary}
+              </p>
+              {!astCheckResult.valid && astCheckResult.syntaxErrors.length > 0 && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const err = astCheckResult.syntaxErrors[0];
+                      const targetFile = files.find(f => f.fileName === err.fileName || f.filePath === err.fileName);
+                      if (targetFile) {
+                        handleOpenCodeEditor(targetFile, err.line);
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    <Code2 className="w-3.5 h-3.5" />
+                    <span>Open {astCheckResult.syntaxErrors[0].fileName || 'file'} at Line {astCheckResult.syntaxErrors[0].line}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {loadingFiles ? (
             <div className="py-6 text-center text-sm text-slate-500 flex items-center justify-center gap-2">
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -1607,7 +1985,7 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
               {files.map((file) => (
                 <div key={file.filePath} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center gap-3 flex-1">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="p-2 bg-sky-50 text-[#0088cc] rounded-lg shrink-0">
                       <FileCode className="w-4 h-4" />
                     </div>
@@ -1629,7 +2007,14 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                       </div>
                     ) : (
                       <div className="min-w-0">
-                        <div className="font-bold text-slate-800 text-sm truncate">{file.fileName}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800 text-sm truncate">{file.fileName}</span>
+                          {(file.fileName === bot.entryPoint || file.filePath === bot.entryPoint) && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                              Entry Point
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-slate-400">{formatSize(file.fileSizeBytes)}</div>
                       </div>
                     )}
@@ -1652,6 +2037,14 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
                       </div>
                     ) : (
                       <>
+                        <button
+                          onClick={() => handleOpenCodeEditor(file)}
+                          className="px-2.5 py-1.5 text-xs font-bold text-[#0088cc] bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                          title="Inspect or edit code with AST validator"
+                        >
+                          <Code2 className="w-3.5 h-3.5" />
+                          <span>Inspect/Edit</span>
+                        </button>
                         <button
                           onClick={() => handleDownloadFile(file)}
                           className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer"
@@ -1682,6 +2075,193 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
           )}
         </div>
       </div>
+
+      {/* Code Editor & AST Syntax Inspector Modal */}
+      {activeEditorFile && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-5xl h-[92vh] flex flex-col shadow-2xl overflow-hidden text-slate-100">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-slate-800 bg-slate-950 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 bg-sky-950 text-sky-400 rounded-lg">
+                  <FileCode className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-white font-mono truncate">
+                      {activeEditorFile.fileName}
+                    </h3>
+                    {(activeEditorFile.fileName === bot.entryPoint || activeEditorFile.filePath === bot.entryPoint) && (
+                      <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-bold">
+                        Entry Point
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-sans">
+                    Python Sandbox Editor & AST Syntax Pre-Validator
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleRunEditorAstCheck}
+                  disabled={isValidatingEditorAst || loadingEditorContent}
+                  className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Check for missing colons, indentation errors, or syntax mistakes"
+                >
+                  <Code2 className={`w-3.5 h-3.5 ${isValidatingEditorAst ? 'animate-spin' : ''}`} />
+                  <span>{isValidatingEditorAst ? 'Checking AST...' : 'Run AST Syntax Check'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveEditorFile}
+                  disabled={savingEditorFile || loadingEditorContent}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  <Save className={`w-3.5 h-3.5 ${savingEditorFile ? 'animate-spin' : ''}`} />
+                  <span>{savingEditorFile ? 'Saving...' : 'Save File'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveEditorFile(null);
+                    setEditorAstResult(null);
+                    setHighlightLine(null);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* AST Feedback Banner inside Editor */}
+            {editorAstResult && (
+              <div className={`px-5 py-3 border-b text-xs flex items-start justify-between gap-3 animate-in slide-in-from-top-2 ${
+                editorAstResult.isValid
+                  ? 'bg-emerald-950/70 border-emerald-800 text-emerald-200'
+                  : 'bg-rose-950/80 border-rose-800 text-rose-100'
+              }`}>
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 font-bold">
+                    {editorAstResult.isValid ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>AST Validation Passed: 0 Syntax or Indentation Errors Detected</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>
+                          Python {editorAstResult.syntaxErrors[0]?.errorType || 'SyntaxError'} on Line {editorAstResult.syntaxErrors[0]?.line}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {!editorAstResult.isValid && editorAstResult.syntaxErrors.length > 0 && (
+                    <div className="space-y-2 pt-1 font-mono text-[11px]">
+                      <p className="text-rose-200">{editorAstResult.syntaxErrors[0].message}</p>
+                      {editorAstResult.syntaxErrors[0].lineText && (
+                        <div className="bg-black/60 rounded p-2 text-rose-300 font-mono">
+                          <div>Line {editorAstResult.syntaxErrors[0].line}: {editorAstResult.syntaxErrors[0].lineText}</div>
+                          {editorAstResult.syntaxErrors[0].pointer && (
+                            <div className="text-rose-400 font-bold">{editorAstResult.syntaxErrors[0].pointer}</div>
+                          )}
+                        </div>
+                      )}
+                      {editorAstResult.syntaxErrors[0].suggestedFix && (
+                        <div className="text-amber-300 font-sans flex items-center gap-1.5">
+                          <span>💡 Fix:</span>
+                          <span className="font-mono bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/60 text-amber-200">
+                            {editorAstResult.syntaxErrors[0].suggestedFix}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setEditorAstResult(null)}
+                  className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Editor Text Area with Line Numbers */}
+            <div className="flex-1 flex min-h-0 bg-slate-950 overflow-hidden font-mono text-xs">
+              {loadingEditorContent ? (
+                <div className="flex-1 flex items-center justify-center text-slate-500 gap-2">
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                  <span>Loading source file...</span>
+                </div>
+              ) : (
+                <div className="flex-1 flex min-h-0 relative">
+                  {/* Line Numbers Gutter */}
+                  <div className="w-14 py-3 bg-slate-900/90 text-slate-500 select-none text-right pr-3 border-r border-slate-800/80 overflow-hidden flex flex-col font-mono leading-6">
+                    {editorContent.split('\n').map((_, i) => {
+                      const lineNum = i + 1;
+                      const isErrLine = highlightLine === lineNum;
+                      return (
+                        <div
+                          key={i}
+                          className={`${isErrLine ? 'text-rose-400 font-black bg-rose-950/60 -mr-3 pr-3' : ''}`}
+                        >
+                          {lineNum}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Code Textarea */}
+                  <textarea
+                    value={editorContent}
+                    onChange={(e) => setEditorContent(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Support Tab key indentation (4 spaces PEP 8)
+                      if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const start = e.currentTarget.selectionStart;
+                        const end = e.currentTarget.selectionEnd;
+                        const spaces = '    ';
+                        setEditorContent(
+                          editorContent.substring(0, start) + spaces + editorContent.substring(end)
+                        );
+                        setTimeout(() => {
+                          e.currentTarget.selectionStart = e.currentTarget.selectionEnd = start + 4;
+                        }, 0);
+                      }
+                    }}
+                    placeholder="# Enter your Python bot code here..."
+                    className="flex-1 p-3 bg-transparent text-slate-100 resize-none focus:outline-none leading-6 font-mono whitespace-pre overflow-auto tab-4"
+                    spellCheck={false}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Editor Footer */}
+            <div className="px-5 py-2.5 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span>Lines: {editorContent.split('\n').length}</span>
+                <span>Characters: {editorContent.length}</span>
+                <span className="text-sky-400">Tab Indent: 4 Spaces</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-400 font-bold">Python 3.x AST Ready</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

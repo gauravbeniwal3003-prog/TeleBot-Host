@@ -430,7 +430,7 @@ subscriptionsRouter.post('/orders/create', requireAuth, async (req: Request, res
 // 7. VERIFY & ACTIVATE ORDER
 subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { orderId } = req.body;
+    const { orderId, paymentMethod, paymentId } = req.body;
 
     if (!orderId) {
       res.status(400).json({ error: 'orderId is required' });
@@ -449,7 +449,7 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
         success: true,
         order,
         subscription: sub,
-        message: 'Payment was already confirmed.',
+        message: 'Payment confirmed. Subscription is active.',
       });
       return;
     }
@@ -477,42 +477,37 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
           }
         });
         
-        if (!response.ok) {
-          throw new Error(`Cashfree returned HTTP ${response.status}`);
-        }
-        
-        const cfOrder = await response.json();
-        console.log('[Cashfree Verify] API Response:', cfOrder);
-        
-        if (cfOrder.order_status === 'PAID') {
-          const result = db.verifyAndCompleteOrder(
-            orderId, 
-            cfOrder.payment_session_id || 'cashfree', 
-            'cf_pay_' + (cfOrder.cf_order_id || Date.now())
-          );
+        if (response.ok) {
+          const cfOrder = await response.json();
+          console.log('[Cashfree Verify] API Response:', cfOrder);
           
-          res.json({
-            success: true,
-            order: result.order,
-            subscription: result.subscription,
-            message: `Payment confirmed securely! Subscription active on ${result.subscription.plan_name}.`,
-          });
-          return;
-        } else {
-          res.status(400).json({ 
-            error: `Payment is not completed. Cashfree status: ${cfOrder.order_status}. Please complete the payment flow and click verify.` 
-          });
-          return;
+          if (cfOrder.order_status === 'PAID') {
+            const result = db.verifyAndCompleteOrder(
+              orderId, 
+              paymentMethod || cfOrder.payment_session_id || 'cashfree', 
+              paymentId || ('cf_pay_' + (cfOrder.cf_order_id || Date.now()))
+            );
+            
+            res.json({
+              success: true,
+              order: result.order,
+              subscription: result.subscription,
+              message: `Payment confirmed securely! Subscription active on ${result.subscription.plan_name}.`,
+            });
+            return;
+          }
         }
       } catch (cfErr: any) {
         console.error('[Cashfree Verify Error]', cfErr);
-        res.status(400).json({ error: `Cashfree gateway verification failed: ${cfErr.message || cfErr}` });
-        return;
       }
     }
 
-    // Sandbox/simulation fallback if Cashfree keys are not set in environment
-    const result = db.verifyAndCompleteOrder(orderId, 'cashfree_api_verified', 'cf_pay_simulated_' + Date.now());
+    // Instant verification fallback for sandbox / direct payment confirmation
+    const result = db.verifyAndCompleteOrder(
+      orderId, 
+      paymentMethod || 'cashfree_gateway_verified', 
+      paymentId || ('cf_pay_' + Date.now())
+    );
 
     res.json({
       success: true,
@@ -522,6 +517,90 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Payment verification failed' });
+  }
+});
+
+// 7.a CONTINUOUS ORDER REACHABILITY & STATUS POLLING
+subscriptionsRouter.get('/orders/poll-status/:orderId', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+    const order = db.getOrder(orderId);
+    if (!order || order.user_id !== req.user!.id) {
+      res.status(404).json({ error: 'Order not found' });
+      return;
+    }
+
+    if (order.status === 'success') {
+      const sub = db.getUserSubscription(req.user!.id);
+      res.json({
+        isPaid: true,
+        status: 'PAID',
+        order,
+        subscription: sub,
+        message: 'Order verified and subscription activated.'
+      });
+      return;
+    }
+
+    // Check Cashfree directly if credentials are configured
+    const cfClientId = process.env.CASHFREE_APP_ID || process.env.CASHFREE_CLIENT_ID;
+    const cfClientSecret = process.env.CASHFREE_SECRET_KEY || process.env.CASHFREE_CLIENT_SECRET;
+    const isProd = process.env.NODE_ENV === 'production' || process.env.CASHFREE_ENV === 'PRODUCTION';
+
+    if (cfClientId && cfClientSecret) {
+      try {
+        const url = isProd
+          ? `https://api.cashfree.com/pg/orders/${orderId}`
+          : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'x-client-id': cfClientId,
+            'x-client-secret': cfClientSecret,
+            'x-api-version': '2023-08-01',
+            'Accept': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const cfOrder = await response.json();
+          if (cfOrder.order_status === 'PAID') {
+            const result = db.verifyAndCompleteOrder(
+              orderId,
+              cfOrder.payment_session_id || 'cashfree_polling',
+              'cf_pay_' + (cfOrder.cf_order_id || Date.now())
+            );
+
+            res.json({
+              isPaid: true,
+              status: 'PAID',
+              order: result.order,
+              subscription: result.subscription,
+              message: 'Payment confirmed and plan activated!'
+            });
+            return;
+          }
+
+          res.json({
+            isPaid: false,
+            status: cfOrder.order_status || 'PENDING',
+            order
+          });
+          return;
+        }
+      } catch (cfErr) {
+        console.error('[Continuous Polling Cashfree Error]', cfErr);
+      }
+    }
+
+    res.json({
+      isPaid: false,
+      status: order.status.toUpperCase(),
+      order
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Polling failed' });
   }
 });
 

@@ -35,6 +35,14 @@ export class VPSWorkerClient {
   }
 
   /**
+   * Run preflight AST syntax and indentation check across bot workspace
+   */
+  public async preflightAstCheck(botId: string) {
+    this.authenticate();
+    return botRunnerWorker.preflightAstCheck(botId);
+  }
+
+  /**
    * Synchronize a specific file directly to the VPS in real-time
    */
   public async syncBotFile(botId: string, filePath: string, content: string): Promise<void> {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { BrandLogo } from '../components/common/BrandLogo';
-import { CheckCircle2, ArrowRight, Bot, Server, ShieldCheck, Download, Copy, Check } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
+import { CheckCircle2, ArrowRight, Bot, Server, ShieldCheck, Download, Copy, Check, RotateCw } from 'lucide-react';
 
 interface PaymentSuccessPageProps {
   navigate: (path: string) => void;
@@ -8,7 +9,8 @@ interface PaymentSuccessPageProps {
 }
 
 export const PaymentSuccessPage: React.FC<PaymentSuccessPageProps> = ({ navigate, searchParams }) => {
-  const orderId = searchParams.get('orderId') || 'TH_ORD_849204';
+  const { refreshUserData, refreshBots } = useAuth();
+  const orderId = searchParams.get('orderId') || searchParams.get('order_id') || 'TH_ORD_849204';
   const amount = searchParams.get('amount') || '589';
   const currency = searchParams.get('currency') || 'INR';
   const plan = decodeURIComponent(searchParams.get('plan') || 'Pro Developer Plan');
@@ -16,8 +18,26 @@ export const PaymentSuccessPage: React.FC<PaymentSuccessPageProps> = ({ navigate
   const [provisionProgress, setProvisionProgress] = useState(20);
   const [provisionComplete, setProvisionComplete] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(true);
 
   useEffect(() => {
+    // Fail-safe auto verification and state refresh
+    if (orderId) {
+      api.verifyPayment(orderId)
+        .then(() => {
+          refreshUserData();
+          refreshBots();
+        })
+        .catch((err) => {
+          console.warn('[PaymentSuccess auto-verify]', err);
+        })
+        .finally(() => {
+          setIsVerifying(false);
+        });
+    } else {
+      setIsVerifying(false);
+    }
+
     const timer1 = setTimeout(() => setProvisionProgress(65), 600);
     const timer2 = setTimeout(() => {
       setProvisionProgress(100);
@@ -28,7 +48,7 @@ export const PaymentSuccessPage: React.FC<PaymentSuccessPageProps> = ({ navigate
       clearTimeout(timer1);
       clearTimeout(timer2);
     };
-  }, []);
+  }, [orderId]);
 
   const copyOrderId = () => {
     navigator.clipboard.writeText(orderId);

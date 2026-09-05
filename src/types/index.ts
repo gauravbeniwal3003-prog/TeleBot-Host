@@ -2,16 +2,35 @@ export type BotFramework = 'aiogram' | 'telethon' | 'pyrogram' | 'telegraf' | 'g
 
 export type BotStatus = 'running' | 'stopped' | 'restarting' | 'error' | 'paused' | 'expired';
 
+export interface ASTSyntaxError {
+  line: number;
+  message: string;
+  column?: number;
+  errorType?: 'SyntaxError' | 'IndentationError' | 'TabError' | 'TokenError' | 'ParseError' | string;
+  lineText?: string;
+  pointer?: string;
+  suggestedFix?: string;
+  fileName?: string;
+}
+
 export interface PythonValidationResult {
   isValid: boolean;
   fileSizeBytes: number;
   fileSizeMB: number;
   maxAllowedMB: number;
-  syntaxErrors: Array<{ line: number; message: string }>;
+  syntaxErrors: ASTSyntaxError[];
   securityWarnings: Array<{ line: number; severity: 'critical' | 'warning' | 'info'; code: string; message: string }>;
   detectedFramework: 'aiogram' | 'telethon' | 'pyrogram' | 'python-telegram-bot' | 'custom';
   detectedDependencies: string[];
   sanitizedTokensCount: number;
+  summary: string;
+}
+
+export interface PreflightAstResult {
+  valid: boolean;
+  entryPoint: string;
+  fileName: string;
+  syntaxErrors: ASTSyntaxError[];
   summary: string;
 }
 

@@ -440,6 +440,58 @@ export class BotRunnerWorker extends EventEmitter {
             LogManager.appendLog(botId, userId, 'warn', `[Terminal] [PIP Notice] Dependencies pre-flight: ${pipErr.message}`);
           }
         }
+      } else {
+        // Auto-detect imports from python files and ensure they are installed
+        try {
+          const pyFiles = fs.readdirSync(botDir).filter(f => f.endsWith('.py'));
+          const discoveredImports = new Set<string>();
+          for (const file of pyFiles) {
+            const content = fs.readFileSync(path.join(botDir, file), 'utf-8');
+            const importRegex = /(?:^|\n)\s*(?:import|from)\s+([a-zA-Z0-9_]+)/g;
+            let match;
+            while ((match = importRegex.exec(content)) !== null) {
+              if (match[1]) discoveredImports.add(match[1]);
+            }
+          }
+          const importToPipMap: Record<string, string> = {
+            telebot: 'pyTelegramBotAPI',
+            telegram: 'python-telegram-bot',
+            aiogram: 'aiogram',
+            requests: 'requests',
+            aiohttp: 'aiohttp',
+            httpx: 'httpx',
+            dotenv: 'python-dotenv',
+            schedule: 'schedule',
+            PIL: 'pillow',
+            bs4: 'beautifulsoup4',
+            pymongo: 'pymongo',
+            flask: 'flask',
+            fastapi: 'fastapi',
+            uvicorn: 'uvicorn',
+            cryptography: 'cryptography',
+            pytz: 'pytz',
+            pydantic: 'pydantic',
+          };
+          const pkgsToEnsure = Array.from(discoveredImports)
+            .map(imp => importToPipMap[imp])
+            .filter(Boolean);
+          if (pkgsToEnsure.length > 0) {
+            const uniquePkgs = Array.from(new Set(pkgsToEnsure));
+            const { spawnSync } = require('child_process');
+            spawnSync(pythonBin, ['-m', 'pip', 'install', '--break-system-packages', ...uniquePkgs], {
+              cwd: botDir,
+              env: {
+                PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+                PYTHONUNBUFFERED: '1',
+                HOME: botDir,
+                TMPDIR: botDir,
+              },
+              timeout: 45000,
+              encoding: 'utf-8',
+            });
+            LogManager.appendLog(botId, userId, 'system', `[Terminal] [PIP] Python environment verified for: ${uniquePkgs.join(', ')}`);
+          }
+        } catch {}
       }
 
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Executing Start Command: ${commandToRun}`);
@@ -448,7 +500,6 @@ export class BotRunnerWorker extends EventEmitter {
       const envDict: Record<string, string> = {
         PATH: process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
         PYTHONUNBUFFERED: '1',
-        PYTHONOPTIMIZE: '2', // Strips docstrings & asserts to conserve memory heap
         PYTHONHASHSEED: 'random',
         PYTHONMALLOC: 'malloc', // Allocates directly via standard malloc/free for fast OS page reclaiming
         MALLOC_TRIM_THRESHOLD_: '65536', // Forces glibc to return freed memory >64KB immediately to OS
@@ -482,6 +533,66 @@ export class BotRunnerWorker extends EventEmitter {
         LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Environment variables: None (Token read directly from Python script).`);
       }
 
+      // Python Syntax Pre-Validation: Run AST syntax & indentation check before launching process
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [AST] Running Python Syntax Pre-Validation on '${entryPoint}'...`);
+      const astCheck = PythonValidator.validateWorkspaceAST(botDir, entryPoint, pythonBin);
+      if (!astCheck.isValid && astCheck.syntaxErrors && astCheck.syntaxErrors.length > 0) {
+        const firstErr = astCheck.syntaxErrors[0];
+        const errType = firstErr.errorType || 'SyntaxError';
+        const fileRef = firstErr.fileName || entryPoint;
+        const lineNum = firstErr.line || 1;
+        const colNum = firstErr.column || 1;
+        const lineText = firstErr.lineText || '';
+        const pointer = firstErr.pointer || '^';
+        const fix = firstErr.suggestedFix || 'Review syntax on this line.';
+
+        LogManager.appendLog(botId, userId, 'error', `------------------------------------------------------------`);
+        LogManager.appendLog(botId, userId, 'error', `[Terminal] [CRITICAL] 🚨 Python Syntax Pre-Validation FAILED!`);
+        LogManager.appendLog(botId, userId, 'error', `[Terminal] [ERROR] ${errType}: ${firstErr.message}`);
+        LogManager.appendLog(botId, userId, 'error', `[Terminal] [FILE] ${fileRef} : Line ${lineNum}, Column ${colNum}`);
+        if (lineText) {
+          LogManager.appendLog(botId, userId, 'error', `[Terminal] [CODE] ${lineNum.toString().padStart(4, ' ')} | ${lineText}`);
+          LogManager.appendLog(botId, userId, 'error', `[Terminal] [CODE]      | ${pointer}`);
+        }
+        LogManager.appendLog(botId, userId, 'warn', `[Terminal] [FIX] 💡 Recommended Action: ${fix}`);
+        LogManager.appendLog(botId, userId, 'error', `[Terminal] [ABORT] Process boot cancelled to prevent VPS crash loop. Fix syntax in Code Editor and restart.`);
+        LogManager.appendLog(botId, userId, 'error', `------------------------------------------------------------`);
+
+        // Record structured error in database & telemetry
+        const friendlyMessage = `Python ${errType} on line ${lineNum} of ${fileRef}: ${firstErr.message}. ${fix}`;
+        const technicalDetails = {
+          errorType: errType,
+          fileName: fileRef,
+          line: lineNum,
+          column: colNum,
+          lineText,
+          pointer,
+          message: firstErr.message,
+          suggestedFix: fix,
+        };
+
+        const botObj = db.getBotDirect(botId);
+        if (botObj) {
+          botObj.status = 'error';
+          botObj.last_error = `${errType}: ${firstErr.message} (${fileRef}:${lineNum})`;
+          botObj.last_error_friendly = friendlyMessage;
+          botObj.last_error_technical = JSON.stringify(technicalDetails);
+          botObj.cpu_usage = 0;
+          botObj.memory_usage_mb = 0;
+          db.save();
+        }
+
+        const tel = this.telemetries.get(botId);
+        if (tel) {
+          tel.state = 'ERROR';
+          tel.lastErrorMessage = friendlyMessage;
+          tel.lastExitCode = 1;
+        }
+
+        throw new Error(`[AST Pre-Validation] ${errType} in '${fileRef}' (Line ${lineNum}, Col ${colNum}): ${firstErr.message}. ${fix}`);
+      }
+
+      LogManager.appendLog(botId, userId, 'system', `[Terminal] [AST] Python AST syntax pre-validation passed. No syntax or indentation errors detected.`);
       LogManager.appendLog(botId, userId, 'system', `[Terminal] [SUCCESS] Pre-flight checks passed. Booting bot engine...`);
 
       const child = spawn(commandToRun, {
@@ -729,6 +840,62 @@ export class BotRunnerWorker extends EventEmitter {
    */
   public getTelemetry(botId: string): ContainerTelemetry | undefined {
     return this.telemetries.get(botId);
+  }
+
+  /**
+   * Helper to ensure bot directory exists and files are synchronized
+   */
+  public ensureBotDirectory(botId: string, userId: string): string {
+    const bot = db.getBotDirect(botId);
+    const user = db.getAllUsers().find(u => u.id === userId);
+    const safeUserName = user?.name ? user.name.replace(/[^a-zA-Z0-9_-]/g, '_') : userId;
+    const safeBotName = bot?.name ? bot.name.replace(/[^a-zA-Z0-9_-]/g, '_') : botId;
+    const botDir = path.join(process.cwd(), 'vps_workspaces', safeUserName, safeBotName);
+    fs.mkdirSync(botDir, { recursive: true });
+
+    // Synchronize workspace files from DB
+    try {
+      const files = db.getBotFilesDirect(botId);
+      for (const file of files) {
+        const fullPath = path.join(botDir, file.file_path);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        if (!fs.existsSync(fullPath) || fs.readFileSync(fullPath, 'utf-8') !== file.content) {
+          fs.writeFileSync(fullPath, file.content, 'utf-8');
+        }
+      }
+    } catch (err) {
+      console.warn(`[BotRunner] Failed to sync files to ${botDir}:`, err);
+    }
+
+    return botDir;
+  }
+
+  /**
+   * Preflight AST syntax and indentation check for bot workspace files
+   */
+  public preflightAstCheck(botId: string) {
+    const bot = db.getBotDirect(botId);
+    const botDir = this.ensureBotDirectory(botId, bot?.user_id || 'unknown');
+    let entryPoint = bot?.entry_point || 'main.py';
+
+    const files = db.getBotFilesDirect(botId);
+    if (!files.some(f => f.file_path === entryPoint)) {
+      const pyFiles = files.filter(f => f.file_path.endsWith('.py'));
+      if (pyFiles.length > 0) {
+        const preferred = pyFiles.find(f => f.file_path === 'bot.py' || f.file_path === 'main.py' || f.file_path === 'app.py');
+        entryPoint = preferred ? preferred.file_path : pyFiles[0].file_path;
+      }
+    }
+
+    const pythonBin = process.env.PYTHON_BIN || (fs.existsSync('/usr/bin/python3') ? '/usr/bin/python3' : 'python3');
+    const res = PythonValidator.validateWorkspaceAST(botDir, entryPoint, pythonBin);
+    return {
+      isValid: res.isValid,
+      fileName: res.fileName,
+      entryPoint,
+      syntaxErrors: res.syntaxErrors,
+      summary: res.summary,
+    };
   }
 
   /**

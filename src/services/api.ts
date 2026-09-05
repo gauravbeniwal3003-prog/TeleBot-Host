@@ -20,6 +20,7 @@ import {
   DBPricingConfig,
   UpgradeQuoteResult,
   PythonValidationResult,
+  PreflightAstResult,
   SecurityTestReport,
   ContainerTelemetry,
   StorageSummary,
@@ -320,6 +321,12 @@ class ApiService {
     return res.result;
   }
 
+  async preflightAst(botId: string): Promise<PreflightAstResult> {
+    return this.request<PreflightAstResult>(`/api/bots/${botId}/preflight-ast`, {
+      method: 'POST',
+    });
+  }
+
   async runSecurityTest(testType: string): Promise<SecurityTestReport> {
     const res = await this.request<{ report: SecurityTestReport }>('/api/bots/security-test', {
       method: 'POST',
@@ -419,6 +426,20 @@ class ApiService {
       storageSummary: StorageSummary;
       memoryLimitMB: number;
     }>(`/api/bots/${botId}/files`);
+  }
+
+  async getBotFileContent(botId: string, filePath: string): Promise<{
+    filePath: string;
+    fileName: string;
+    content: string;
+    mimeType: string;
+  }> {
+    return this.request<{
+      filePath: string;
+      fileName: string;
+      content: string;
+      mimeType: string;
+    }>(`/api/bots/${botId}/files/content?filePath=${encodeURIComponent(filePath)}`);
   }
 
   async getBotStorageSummary(botId: string): Promise<StorageSummary> {
@@ -648,12 +669,18 @@ class ApiService {
     return res;
   }
 
-  async verifyPayment(orderId: string, paymentMethod?: string, paymentId?: string): Promise<OrderDetails> {
+  async verifyPayment(orderId: string, paymentMethod?: string, paymentId?: string): Promise<{ order: OrderDetails; subscription: any }> {
     const res = await this.request<{ order: OrderDetails; subscription: any }>('/api/orders/verify', {
       method: 'POST',
       body: JSON.stringify({ orderId, paymentMethod, paymentId }),
     });
-    return res.order;
+    return res;
+  }
+
+  async pollOrderStatus(orderId: string): Promise<{ isPaid: boolean; status: string; order: OrderDetails; subscription?: any; message?: string }> {
+    return this.request<{ isPaid: boolean; status: string; order: OrderDetails; subscription?: any; message?: string }>(
+      `/api/orders/poll-status/${orderId}`
+    );
   }
 
   async getUserOrders(): Promise<OrderDetails[]> {

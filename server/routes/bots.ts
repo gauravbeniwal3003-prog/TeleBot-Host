@@ -100,6 +100,27 @@ botsRouter.post('/validate-code', async (req: Request, res: Response): Promise<v
   }
 });
 
+// PREFLIGHT AST SYNTAX & INDENTATION CHECK (Before launching bot process)
+botsRouter.post('/:id/preflight-ast', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bot = db.getBotById(req.params.id, req.user!.id);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+    const check = await vpsWorkerClient.preflightAstCheck(bot.id);
+    res.json({
+      valid: check.isValid,
+      entryPoint: check.entryPoint,
+      fileName: check.fileName,
+      syntaxErrors: check.syntaxErrors,
+      summary: check.summary,
+    });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'AST preflight check failed' });
+  }
+});
+
 // RUN SECURITY & ISOLATION TESTS
 botsRouter.post('/security-test', async (req: Request, res: Response): Promise<void> => {
   try {

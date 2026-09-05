@@ -311,6 +311,56 @@ filesRouter.post('/:botId/files/upload', async (req: Request, res: Response): Pr
   }
 });
 
+// 4b. GET FILE TEXT CONTENT (For in-browser code editor & AST inspector)
+filesRouter.get('/:botId/files/content', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const botId = req.params.botId;
+    const { filePath } = req.query;
+
+    if (!filePath || typeof filePath !== 'string') {
+      res.status(400).json({ error: 'filePath query param is required' });
+      return;
+    }
+
+    const cleanPath = StorageManager.sanitizeFilePath(filePath);
+    const fileName = path.basename(cleanPath);
+
+    // Try VPS disk first
+    let textContent: string | null = null;
+    try {
+      const buffer = await vpsWorkerClient.readVPSFile(botId, cleanPath);
+      if (buffer) {
+        textContent = buffer.toString('utf-8');
+      }
+    } catch {
+      // fallback
+    }
+
+    if (textContent === null) {
+      const files = db.getBotFiles(botId, userId);
+      const file = files.find((f) => f.file_path === cleanPath || f.file_name === cleanPath);
+      if (file && typeof file.content === 'string') {
+        textContent = file.content;
+      }
+    }
+
+    if (textContent === null) {
+      res.status(404).json({ error: `File "${cleanPath}" not found` });
+      return;
+    }
+
+    res.json({
+      filePath: cleanPath,
+      fileName,
+      content: textContent,
+      mimeType: getMimeType(fileName),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to read file content' });
+  }
+});
+
 // 5. DOWNLOAD BOT FILE (With safe Content-Disposition, sanitized headers, no host path leak)
 filesRouter.get('/:botId/files/download', async (req: Request, res: Response): Promise<void> => {
   try {
