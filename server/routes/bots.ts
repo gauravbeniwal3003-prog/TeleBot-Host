@@ -167,7 +167,7 @@ botsRouter.get('/:id', (req: Request, res: Response): void => {
 });
 
 // 4. PERFORM BOT ACTIONS (start, stop, pause, resume, restart)
-botsRouter.post('/:id/action', (req: Request, res: Response): void => {
+botsRouter.post('/:id/action', async (req: Request, res: Response): Promise<void> => {
   try {
     const { action, startCommand } = req.body;
     if (!['start', 'stop', 'pause', 'resume', 'restart'].includes(action)) {
@@ -175,7 +175,7 @@ botsRouter.post('/:id/action', (req: Request, res: Response): void => {
       return;
     }
 
-    const updatedBot = db.updateBotStatus(req.params.id, req.user!.id, action as any, startCommand);
+    const updatedBot = await db.updateBotStatus(req.params.id, req.user!.id, action as any, startCommand);
     const envs = db.getBotEnvVars(updatedBot.id, req.user!.id);
 
     res.json({
@@ -210,10 +210,10 @@ botsRouter.patch('/:id/config', (req: Request, res: Response): void => {
 });
 
 // 4b. SWITCH ACTIVE BOT SLOT (Atomic slot swap)
-botsRouter.post('/:id/switch-active', (req: Request, res: Response): void => {
+botsRouter.post('/:id/switch-active', async (req: Request, res: Response): Promise<void> => {
   try {
     const { fromBotId } = req.body;
-    const { targetBot, stoppedBot } = db.switchActiveBot(req.params.id, req.user!.id, fromBotId);
+    const { targetBot, stoppedBot } = await db.switchActiveBot(req.params.id, req.user!.id, fromBotId);
     const envs = db.getBotEnvVars(targetBot.id, req.user!.id);
 
     res.json({

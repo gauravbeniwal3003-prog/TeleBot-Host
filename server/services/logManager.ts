@@ -95,7 +95,7 @@ export class LogManager {
 
       // Record last error on bot object if it's critical
       if (level === 'error' || translated.severity === 'critical') {
-        const bot = db.getBotById(botId, userId);
+        const bot = db.getBotDirect(botId);
         if (bot) {
           bot.last_error = rawMessage;
           bot.last_error_friendly = friendlyMessage;

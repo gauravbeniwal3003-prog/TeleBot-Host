@@ -1353,88 +1353,6 @@ class RelationalDatabase {
       vpsWorkerClient.startBot(bot.id).catch((e) => console.error('Failed to auto-start bot:', e));
     }
 
-    // Initial deployment logs
-    const pid = Math.floor(40000 + Math.random() * 20000);
-    this.data.logs.push(
-      {
-        id: `log_${Date.now()}_1`,
-        bot_id: botId,
-        project_id: projId,
-        user_id: userId,
-        level: 'info',
-        message: `[VPS SYSTEM] Initializing isolated Linux container sandbox for bot "${bot.name}" (cgroups v2, memory limit: ${bot.memory_limit_mb || 512}MB, read-only rootfs).`,
-        timestamp: now,
-      },
-      {
-        id: `log_${Date.now()}_2`,
-        bot_id: botId,
-        project_id: projId,
-        user_id: userId,
-        level: 'info',
-        message: `[DEPLOY] Parsing entry point script "${bot.entry_point}" (Framework: ${bot.framework})...`,
-        timestamp: now,
-      },
-      {
-        id: `log_${Date.now()}_3`,
-        bot_id: botId,
-        project_id: projId,
-        user_id: userId,
-        level: 'info',
-        message: `[DEPLOY] Static security inspection: 0 vulnerabilities found, AST verification PASSED.`,
-        timestamp: now,
-      },
-      {
-        id: `log_${Date.now()}_4`,
-        bot_id: botId,
-        project_id: projId,
-        user_id: userId,
-        level: 'info',
-        message: `[DEPLOY] Environment variables loaded (BOT_TOKEN, ENVIRONMENT=production).`,
-        timestamp: now,
-      },
-      {
-        id: `log_${Date.now()}_5`,
-        bot_id: botId,
-        project_id: projId,
-        user_id: userId,
-        level: 'info',
-        message: `[DEPLOY SUCCESS] Bot container created & deployed successfully. Ready for execution.`,
-        timestamp: now,
-      }
-    );
-
-    if (canAutoRun) {
-      this.data.logs.push(
-        {
-          id: `log_${Date.now()}_6`,
-          bot_id: botId,
-          project_id: projId,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] Launching container process: python3 ${bot.entry_point} (PID: ${pid})...`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_7`,
-          bot_id: botId,
-          project_id: projId,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [TeleBot Host Engine] Bot process online. Connected to Telegram Gateway.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_8`,
-          bot_id: botId,
-          project_id: projId,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [INFO] ${bot.name} is listening for incoming updates 24/7.`,
-          timestamp: now,
-        }
-      );
-    }
-
     this.save();
 
     this.logActivity({
@@ -1498,12 +1416,12 @@ class RelationalDatabase {
     return bot;
   }
 
-  updateBotStatus(
+  async updateBotStatus(
     botId: string,
     userId: string,
     action: 'start' | 'stop' | 'pause' | 'resume' | 'restart',
     customStartCommand?: string
-  ): DBTelegramBot {
+  ): Promise<DBTelegramBot> {
     const bot = this.getBotById(botId, userId);
     if (!bot) throw new Error('Bot not found or unauthorized');
 
@@ -1554,89 +1472,32 @@ class RelationalDatabase {
           `Active bot limit reached. Your plan allows ${maxActive} simultaneous running bot(s) (out of ${sub?.total_bot_slots || maxActive * 3} total bot slots). Please stop another running bot or use 'Switch Active Bot' to swap slots.`
         );
       }
-      bot.status = 'running';
-      bot.is_active_slot = true;
-      bot.cpu_usage = Math.round((Math.random() * 4 + 1.2) * 10) / 10;
-      bot.memory_usage_mb = 0; // Initialize at 0, telemetry will update it
-      bot.last_started_at = now;
-      bot.uptime_seconds = 1;
-
-      vpsWorkerClient.startBot(bot.id).catch((e) => console.error('Worker start error:', e));
+      const res = await vpsWorkerClient.startBot(bot.id);
+      if (res.state === 'ERROR') {
+        bot.status = 'error';
+        bot.last_error = res.message || 'Failed to start bot process';
+        bot.cpu_usage = 0;
+        bot.memory_usage_mb = 0;
+      } else {
+        bot.status = 'running';
+        bot.is_active_slot = true;
+        bot.last_started_at = now;
+        bot.uptime_seconds = 1;
+      }
     } else if (action === 'pause') {
       if (bot.status !== 'running') {
         throw new Error('Only running bots can be paused');
       }
       bot.status = 'paused';
       bot.cpu_usage = 0;
-      vpsWorkerClient.pauseBot(bot.id).catch((e) => console.error('Worker pause error:', e));
-
-      this.data.logs.push(
-        {
-          id: `log_${Date.now()}_pause_1`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] PAUSE command received from user dashboard at ${new Date(now).toLocaleTimeString()} UTC.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_pause_2`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] Freezing container process tree via cgroups freezer.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_pause_3`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [INFO] Process execution paused. Standby memory state preserved.`,
-          timestamp: now,
-        }
-      );
+      await vpsWorkerClient.pauseBot(bot.id);
     } else if (action === 'resume') {
       if (bot.status !== 'paused') {
         throw new Error('Bot is not currently paused');
       }
       bot.status = 'running';
       bot.is_active_slot = true;
-      bot.cpu_usage = Math.round((Math.random() * 3 + 1.2) * 10) / 10;
-      vpsWorkerClient.resumeBot(bot.id).catch((e) => console.error('Worker resume error:', e));
-
-      this.data.logs.push(
-        {
-          id: `log_${Date.now()}_res_1`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] RESUME command received from user dashboard at ${new Date(now).toLocaleTimeString()} UTC.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_res_2`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] Unfreezing container process tree.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_res_3`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [INFO] Process unfrozen. Resuming Telegram long-polling updates.`,
-          timestamp: now,
-        }
-      );
+      await vpsWorkerClient.resumeBot(bot.id);
     } else if (action === 'stop') {
       bot.status = 'stopped';
       bot.is_active_slot = false;
@@ -1645,115 +1506,21 @@ class RelationalDatabase {
       bot.uptime_seconds = 0;
       bot.last_stopped_at = now;
 
-      vpsWorkerClient.stopBot(bot.id).catch((e) => console.error('Worker stop error:', e));
-
-      const pid = Math.floor(40000 + Math.random() * 20000);
-      this.data.logs.push(
-        {
-          id: `log_${Date.now()}_stop_1`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] STOP command received from user dashboard at ${new Date(now).toLocaleTimeString()} UTC.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_stop_2`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT PROCESS] Sending SIGTERM signal to process (PID: ${pid})...`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_stop_3`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [INFO] Bot process graceful shutdown initiated.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_stop_4`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT PROCESS] Process exited cleanly with code 0.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_stop_5`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] Container stopped at ${new Date(now).toLocaleTimeString()} UTC. CPU/RAM allocations freed. Status: STOPPED.`,
-          timestamp: now,
-        }
-      );
+      await vpsWorkerClient.stopBot(bot.id);
     } else if (action === 'restart') {
-      bot.status = 'running';
-      bot.is_active_slot = true;
       bot.restart_count += 1;
-      bot.cpu_usage = Math.round((Math.random() * 3 + 1.5) * 10) / 10;
-      bot.memory_usage_mb = Math.round(Math.random() * 60 + 100);
       bot.last_started_at = now;
-      bot.uptime_seconds = 1;
-
-      vpsWorkerClient.restartBot(bot.id).catch((e) => console.error('Worker restart error:', e));
-
-      const pid = Math.floor(40000 + Math.random() * 20000);
-      this.data.logs.push(
-        {
-          id: `log_${Date.now()}_rst_1`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] RESTART command received from user dashboard at ${new Date(now).toLocaleTimeString()} UTC.`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_rst_2`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT PROCESS] Terminating active PID ${pid}...`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_rst_3`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[VPS SYSTEM] Container cache cleared. Reloading entry script '${bot.entry_point}'...`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_rst_4`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT PROCESS] Spawning fresh process: python3 ${bot.entry_point} (PID: ${pid + 104})`,
-          timestamp: now,
-        },
-        {
-          id: `log_${Date.now()}_rst_5`,
-          bot_id: botId,
-          project_id: bot.project_id,
-          user_id: userId,
-          level: 'info',
-          message: `[BOT STDOUT] [TeleBot Host Engine] Bot restarted successfully. Operational status: ONLINE.`,
-          timestamp: now,
-        }
-      );
+      const res = await vpsWorkerClient.restartBot(bot.id);
+      if (res.state === 'ERROR') {
+        bot.status = 'error';
+        bot.last_error = res.message || 'Failed to restart bot process';
+        bot.cpu_usage = 0;
+        bot.memory_usage_mb = 0;
+      } else {
+        bot.status = 'running';
+        bot.is_active_slot = true;
+        bot.uptime_seconds = 1;
+      }
     }
 
     bot.updated_at = now;
@@ -1770,7 +1537,7 @@ class RelationalDatabase {
     return bot;
   }
 
-  switchActiveBot(targetBotId: string, userId: string, fromBotId?: string): { targetBot: DBTelegramBot; stoppedBot?: DBTelegramBot } {
+  async switchActiveBot(targetBotId: string, userId: string, fromBotId?: string): Promise<{ targetBot: DBTelegramBot; stoppedBot?: DBTelegramBot }> {
     const targetBot = this.getBotById(targetBotId, userId);
     if (!targetBot) throw new Error('Target bot not found');
 
@@ -1784,7 +1551,7 @@ class RelationalDatabase {
     if (fromBotId && fromBotId !== targetBotId) {
       stoppedBot = this.getBotById(fromBotId, userId);
       if (stoppedBot && (stoppedBot.status === 'running' || stoppedBot.status === 'paused')) {
-        this.updateBotStatus(fromBotId, userId, 'stop');
+        await this.updateBotStatus(fromBotId, userId, 'stop');
       }
     } else {
       // Find currently running bots
@@ -1792,13 +1559,13 @@ class RelationalDatabase {
       if (currentlyRunning.length >= maxActive) {
         // Automatically stop the oldest running bot to free slot
         const oldest = currentlyRunning[0];
-        this.updateBotStatus(oldest.id, userId, 'stop');
+        await this.updateBotStatus(oldest.id, userId, 'stop');
         stoppedBot = oldest;
       }
     }
 
     // Now start target bot
-    const activated = this.updateBotStatus(targetBotId, userId, 'start');
+    const activated = await this.updateBotStatus(targetBotId, userId, 'start');
     return { targetBot: activated, stoppedBot };
   }
 

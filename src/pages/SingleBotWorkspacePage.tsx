@@ -195,10 +195,33 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
     }
     if (bot && tab === 'logs') {
       fetchBotLogs();
-      const interval = setInterval(fetchBotLogs, 4000);
+      const interval = setInterval(fetchBotLogs, 3000);
       return () => clearInterval(interval);
     }
   }, [bot?.id, tab]);
+
+  // Live status synchronization polling: continuously checks real VPS process state
+  useEffect(() => {
+    if (!botId) return;
+    const syncInterval = setInterval(async () => {
+      try {
+        const freshList = await api.getBots();
+        const found = freshList.find(b => b.id === botId);
+        if (found) {
+          setBot(prev => {
+            if (!prev) return found;
+            if (prev.status !== found.status || prev.memoryUsageMB !== found.memoryUsageMB || prev.lastError !== found.lastError) {
+              return found;
+            }
+            return prev;
+          });
+        }
+      } catch {
+        // silent sync error
+      }
+    }, 3000);
+    return () => clearInterval(syncInterval);
+  }, [botId]);
 
   if (loading) {
     return <div className="p-12 text-center text-slate-500">Loading workspace...</div>;
@@ -366,7 +389,21 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
       addToast('info', 'Restarting bot with start command...');
       const updated = await api.updateBotStatus(bot.id, 'restart', startCommand);
       setBot(updated);
-      addToast('success', 'Bot restarted successfully!');
+
+      // Verify startup after short delay
+      await new Promise(r => setTimeout(r, 1000));
+      const freshList = await api.getBots();
+      const fresh = freshList.find(b => b.id === bot.id);
+      if (fresh) {
+        setBot(fresh);
+        if (fresh.status === 'error') {
+          addToast('error', fresh.lastError ? `Bot crashed: ${fresh.lastError}` : 'Bot exited with error. Check console logs.');
+        } else if (fresh.status === 'running') {
+          addToast('success', 'Bot restarted and running successfully!');
+        }
+      } else {
+        addToast('success', 'Bot restart signal processed.');
+      }
       fetchBotLogs();
       refreshBots();
     } catch (e: any) {

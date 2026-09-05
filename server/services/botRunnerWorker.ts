@@ -19,6 +19,7 @@ import path from 'path';
 import { db } from '../db/database';
 import { PythonValidator, PythonValidationResult } from './pythonValidator';
 import { LogManager } from './logManager';
+import { ErrorTranslator } from './errorTranslator';
 
 export type ContainerState = 'STARTING' | 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'ERROR' | 'EXPIRED';
 
@@ -501,8 +502,15 @@ export class BotRunnerWorker extends EventEmitter {
         const botObj = db.getBotDirect(botId);
         if (botObj) {
           botObj.status = 'error';
+          botObj.last_error = err.message;
+          const translated = ErrorTranslator.translate(err.message);
+          botObj.last_error_friendly = translated.friendlyMessage;
+          botObj.last_error_technical = JSON.stringify(translated.technicalDetails);
+          botObj.cpu_usage = 0;
+          botObj.memory_usage_mb = 0;
           db.save();
         }
+        this.activeProcesses.delete(botId);
       });
 
       child.stdout.on('data', (data) => {
@@ -530,21 +538,31 @@ export class BotRunnerWorker extends EventEmitter {
         }
 
         const tel = this.telemetries.get(botId);
-        if (tel && tel.state === 'ACTIVE') {
+        if (tel) {
           tel.state = code === 0 ? 'STOPPED' : 'ERROR';
-          tel.lastExitCode = code || undefined;
-          tel.lastErrorMessage = code !== 0 ? `Process exited with error code ${code}` : undefined;
+          tel.lastExitCode = code ?? undefined;
+          tel.lastErrorMessage = code !== 0 ? (stderrBuffer.trim() || `Process exited with error code ${code}`) : undefined;
           this.emit('bot_event', {
             type: 'STOP',
             botId,
             timestamp: new Date().toISOString(),
             message: `Container exited with code ${code}`,
           });
-          const botObj = db.getBotDirect(botId);
-          if (botObj) {
-            botObj.status = tel.state === 'ERROR' ? 'error' : 'stopped';
-            db.save();
+        }
+        const botObj = db.getBotDirect(botId);
+        if (botObj) {
+          botObj.status = code === 0 ? 'stopped' : 'error';
+          botObj.cpu_usage = 0;
+          botObj.memory_usage_mb = 0;
+          botObj.uptime_seconds = 0;
+          if (code !== 0) {
+            const rawErr = stderrBuffer.trim() || `Process exited with error code ${code}`;
+            botObj.last_error = rawErr;
+            const translated = ErrorTranslator.translate(rawErr);
+            botObj.last_error_friendly = translated.friendlyMessage;
+            botObj.last_error_technical = JSON.stringify(translated.technicalDetails);
           }
+          db.save();
         }
         this.activeProcesses.delete(botId);
       });
@@ -880,15 +898,16 @@ export class BotRunnerWorker extends EventEmitter {
             db.save();
           }
         } else {
-          telemetry.state = 'STOPPED';
+          telemetry.state = (telemetry.state === 'ERROR' || telemetry.lastExitCode !== undefined) ? 'ERROR' : 'STOPPED';
           telemetry.cpuPercent = 0;
           telemetry.memoryUsageMB = 0;
 
-          // Ensure database/JSON state reflects stopped status
+          // Ensure database/JSON state reflects stopped or error status
           const bot = db.getBotDirect(botId);
           if (bot && bot.status !== 'stopped' && bot.status !== 'expired' && bot.status !== 'error') {
-            bot.status = 'stopped';
+            bot.status = telemetry.state === 'ERROR' ? 'error' : 'stopped';
             bot.memory_usage_mb = 0;
+            bot.cpu_usage = 0;
             db.save();
           }
         }
