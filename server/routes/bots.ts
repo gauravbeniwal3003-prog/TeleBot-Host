@@ -469,18 +469,62 @@ botsRouter.post('/:id/ai/diagnose', async (req: Request, res: Response): Promise
     let logToAnalyze = rawLog;
     if (!logToAnalyze) {
       // Grab recent error/system logs
-      const logsResult = LogManager.getLogs(bot.id, req.user!.id, { limit: 40 });
+      const logsResult = LogManager.getLogs(bot.id, req.user!.id, { limit: 60 });
       logToAnalyze = logsResult.logs.map((l) => `[${l.level.toUpperCase()}] ${l.message}`).join('\n');
     }
+
+    const files = db.getBotFilesDirect(bot.id);
+    const codeFiles = files.map((f) => ({
+      fileName: f.file_path,
+      content: f.content || '',
+    }));
 
     const diagnosis = await GroqAiService.diagnoseError(logToAnalyze, {
       botName: bot.name,
       framework: bot.framework,
+      files: codeFiles,
     });
 
     res.json({ diagnosis });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Groq AI diagnosis failed' });
+  }
+});
+
+// 7b. AUTO-FIX & REDEPLOY BOT
+botsRouter.post('/:id/ai/auto-fix', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const bot = db.getBotById(req.params.id, req.user!.id);
+    if (!bot) {
+      res.status(404).json({ error: 'Bot not found' });
+      return;
+    }
+
+    const { packages } = req.body;
+    if (!packages || !Array.isArray(packages) || packages.length === 0) {
+      res.status(400).json({ error: 'No packages provided to auto-fix' });
+      return;
+    }
+
+    // 1. Run pip install
+    const installResult = await GroqAiService.installPackages(bot.id, req.user!.id, packages);
+    if (!installResult.success) {
+      res.status(500).json({ error: installResult.message, output: installResult.output });
+      return;
+    }
+
+    // 2. Automatically redeploy / start the bot
+    const updatedBot = await db.updateBotStatus(bot.id, req.user!.id, 'start');
+    const envs = db.getBotEnvVars(updatedBot.id, req.user!.id);
+
+    res.json({
+      success: true,
+      message: `Successfully installed ${packages.join(', ')} and redeployed bot!`,
+      bot: formatBot(updatedBot, envs),
+      installOutput: installResult.output,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Auto-fix failed' });
   }
 });
 

@@ -4,17 +4,21 @@ import fs from 'fs';
 import { db } from '../db/database';
 import { LogManager } from './logManager';
 
-// Read purely from environment variable (e.g. Vercel environment or .env)
-// Never hardcode API keys directly into source code.
-
 export interface GroqDiagnosisResult {
   isError: boolean;
+  errorType: string;
   friendlyTitle: string;
+  explanation: string;
   friendlyMessage: string;
+  rootCause: string;
+  possibilities: string[];
   suggestedFix: string;
+  codeFix?: string;
+  suggestedCommand?: string;
+  missingPackages: string[];
   requiredPackages: string[];
   autoFixable: boolean;
-  suggestedCommand?: string;
+  readyToUsePrompt?: string;
   confidence: number;
 }
 
@@ -35,16 +39,49 @@ export class GroqAiService {
   }
 
   private static getModels(): string[] {
-    return ['qwen/qwen3.8-27b', 'openai/gpt-oss-20b', 'groq/compound-mini'];
+    return [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'mixtral-8x7b-32768',
+      'gemma2-9b-it',
+      'qwen/qwen3.8-27b',
+    ];
+  }
+
+  public static readonly MODULE_TO_PYPI: Record<string, string> = {
+    telegram: 'python-telegram-bot',
+    telebot: 'pyTelegramBotAPI',
+    aiogram: 'aiogram',
+    dotenv: 'python-dotenv',
+    PIL: 'Pillow',
+    cv2: 'opencv-python',
+    bs4: 'beautifulsoup4',
+    yaml: 'PyYAML',
+    sklearn: 'scikit-learn',
+    jwt: 'PyJWT',
+    psycopg2: 'psycopg2-binary',
+    fitz: 'PyMuPDF',
+    docx: 'python-docx',
+    pptx: 'python-pptx',
+    magic: 'python-magic',
+    mysql: 'mysql-connector-python',
+    discord: 'discord.py',
+    pyrogram: 'pyrogram',
+    telethon: 'telethon',
+  };
+
+  public static resolvePypiPackageName(importName: string): string {
+    const clean = importName.replace(/['"]/g, '').trim();
+    return this.MODULE_TO_PYPI[clean] || clean;
   }
 
   /**
    * Helper to invoke Groq OpenAI-compatible Chat Completions API
    */
-  private static async queryGroqChat(messages: Array<{ role: string; content: string }>, maxTokens: number = 400): Promise<string> {
+  private static async queryGroqChat(messages: Array<{ role: string; content: string }>, maxTokens: number = 800): Promise<string> {
     const apiKey = this.getApiKey();
     if (!apiKey) {
-      throw new Error('GROQ_API_KEY environment variable is not configured. Please add GROQ_API_KEY in your Vercel or deployment settings.');
+      throw new Error('GROQ_API_KEY is not configured');
     }
     const models = this.getModels();
 
@@ -93,56 +130,145 @@ export class GroqAiService {
    */
   public static async diagnoseError(
     rawLogText: string,
-    context?: { botName?: string; framework?: string }
+    context?: { botName?: string; framework?: string; files?: Array<{ fileName: string; content?: string }> }
   ): Promise<GroqDiagnosisResult> {
+    // 1. Check for quick local missing module detection
+    const missingModuleMatch = rawLogText.match(/No module named ['"]([^'"]+)['"]/i) ||
+      rawLogText.match(/ModuleNotFoundError:\s+No module named ['"]?([^'"\n\r]+)['"]?/i) ||
+      rawLogText.match(/cannot import name ['"]([^'"]+)['"]/i);
+    
+    let localDetectedPackages: string[] = [];
+    if (missingModuleMatch) {
+      const mod = missingModuleMatch[1].trim().split('.')[0];
+      if (mod) {
+        localDetectedPackages.push(this.resolvePypiPackageName(mod));
+      }
+    }
+
+    // Attempt Groq AI API diagnosis
     try {
-      const prompt = `You are a world-class Python and Telegram bot DevOps engineer.
-Analyze the following error log or traceback:
+      const codeContext = (context?.files || [])
+        .filter(f => f.fileName.endsWith('.py') || f.fileName === 'requirements.txt')
+        .slice(0, 3)
+        .map(f => `--- File: ${f.fileName} ---\n${(f.content || '').slice(0, 1500)}`)
+        .join('\n\n');
+
+      const prompt = `You are a world-class Python and Telegram Bot DevOps specialist.
+A user's Telegram bot encountered an issue or produced these logs:
+
+LOGS / CONSOLE OUTPUT:
 """
-${rawLogText.slice(-3000)}
+${rawLogText.slice(-4000)}
 """
 
-Context: Bot Framework = ${context?.framework || 'auto-detect'}, Bot Name = ${context?.botName || 'Telegram Bot'}.
+BOT CONTEXT:
+Framework: ${context?.framework || 'auto-detect'}
+Bot Name: ${context?.botName || 'Telegram Bot'}
+${codeContext ? `Source Files:\n${codeContext}` : ''}
+
+Provide an in-depth diagnosis to help the customer understand why this error occurred, all possibilities, and exact fixes ready to implement.
 
 Respond ONLY with a valid JSON object matching this schema:
 {
-  "isError": true or false,
-  "friendlyTitle": "Short, crystal clear title of what went wrong (under 8 words)",
-  "friendlyMessage": "User-friendly explanation of why this happened and what it means (1-2 sentences)",
-  "suggestedFix": "Precise, step-by-step instructions on how the user or system should fix this",
-  "requiredPackages": ["package1", "package2"], // Extract real PyPI pip package names if this error is due to missing modules/libraries (e.g. ['python-telegram-bot', 'httpx'])
-  "autoFixable": true or false, // True if installing missing packages or adding token can fix it
-  "suggestedCommand": "e.g. pip install package_name", // Optional command to fix
+  "isError": true,
+  "errorType": "Category (e.g. Missing Package, Telegram API Auth, SQLite Lock, Syntax Error, Network Timeout, Runtime Logic)",
+  "friendlyTitle": "Crystal clear title (under 8 words)",
+  "explanation": "Clear, direct explanation of why this error occurred and what happened",
+  "rootCause": "The exact technical root cause behind the failure",
+  "possibilities": [
+    "Possibility 1 explaining why this occurred",
+    "Possibility 2 explaining potential contributing factors",
+    "Possibility 3 explaining environment or network aspects"
+  ],
+  "suggestedFix": "Clear step-by-step instructions on how to resolve the issue",
+  "codeFix": "# Ready-to-use Python or configuration snippet resolving the issue\\n...",
+  "suggestedCommand": "pip install <package> (or relevant bash command if applicable)",
+  "missingPackages": ["pypi-package-name"], // Real PyPI package names if missing module (e.g. ['python-telegram-bot', 'aiogram', 'httpx'])
+  "autoFixable": true, // true if this can be solved automatically by installing missing packages
+  "readyToUsePrompt": "Formatted prompt explaining the error and requesting a fix that the user can copy/paste directly into ChatGPT, Claude, Cursor or any AI coding assistant",
   "confidence": 0.95
 }`;
 
       const rawJson = await this.queryGroqChat([
-        { role: 'system', content: 'You are an expert Telegram Bot hosting diagnosis assistant. Always return pure JSON.' },
+        { role: 'system', content: 'You are an expert Telegram bot and Python hosting diagnosis AI. Always return strictly valid JSON.' },
         { role: 'user', content: prompt }
-      ], 450);
+      ], 800);
 
       const parsed = JSON.parse(rawJson);
+      const missingPkgs: string[] = Array.isArray(parsed.missingPackages)
+        ? parsed.missingPackages.map((p: string) => this.resolvePypiPackageName(p))
+        : (localDetectedPackages.length > 0 ? localDetectedPackages : []);
+
+      const expl = parsed.explanation || parsed.friendlyMessage || 'An issue occurred during bot execution.';
+
       return {
         isError: parsed.isError !== false,
-        friendlyTitle: parsed.friendlyTitle || 'Runtime Issue Detected',
-        friendlyMessage: parsed.friendlyMessage || 'An issue occurred during bot execution.',
-        suggestedFix: parsed.suggestedFix || 'Please inspect the traceback and adjust your script configuration.',
-        requiredPackages: Array.isArray(parsed.requiredPackages) ? parsed.requiredPackages : [],
-        autoFixable: Boolean(parsed.autoFixable),
-        suggestedCommand: parsed.suggestedCommand,
-        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.9,
+        errorType: parsed.errorType || (missingPkgs.length > 0 ? 'Missing Package' : 'Runtime Issue'),
+        friendlyTitle: parsed.friendlyTitle || (missingPkgs.length > 0 ? `Missing Python Package: ${missingPkgs.join(', ')}` : 'Runtime Issue Detected'),
+        explanation: expl,
+        friendlyMessage: expl,
+        rootCause: parsed.rootCause || expl,
+        possibilities: Array.isArray(parsed.possibilities) && parsed.possibilities.length > 0
+          ? parsed.possibilities
+          : ['A required library was not imported or installed.', 'Execution environment configuration issue.'],
+        suggestedFix: parsed.suggestedFix || (missingPkgs.length > 0 ? `Install the missing package (${missingPkgs.join(', ')}) to resolve this.` : 'Review the console traceback above and verify script logic.'),
+        codeFix: parsed.codeFix || (missingPkgs.length > 0 ? `# Run in terminal:\\npip install ${missingPkgs.join(' ')}` : undefined),
+        suggestedCommand: parsed.suggestedCommand || (missingPkgs.length > 0 ? `pip install ${missingPkgs.join(' ')}` : undefined),
+        missingPackages: missingPkgs,
+        requiredPackages: missingPkgs,
+        autoFixable: Boolean(parsed.autoFixable) || missingPkgs.length > 0,
+        readyToUsePrompt: parsed.readyToUsePrompt || `I am hosting a Python Telegram bot (${context?.framework || 'bot'}). My bot failed with the following error:\n\n${rawLogText.slice(-1500)}\n\nPlease provide the corrected code to fix this issue.`,
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.95,
       };
     } catch (e: any) {
-      console.error('[Groq AI] Error diagnosis failed:', e.message);
-      // Fallback
+      console.warn('[Groq AI] Falling back to intelligent local error analyzer:', e.message);
+      
+      // Fallback rule-based analyzer
+      if (localDetectedPackages.length > 0) {
+        const pkg = localDetectedPackages.join(', ');
+        return {
+          isError: true,
+          errorType: 'Missing Package',
+          friendlyTitle: `Missing Python Package: ${pkg}`,
+          explanation: `Your bot stopped because Python could not find the required package "${pkg}".`,
+          friendlyMessage: `Your bot stopped because Python could not find the required package "${pkg}".`,
+          rootCause: `ModuleNotFoundError: No module named '${pkg}' during script initialization.`,
+          possibilities: [
+            `The package "${pkg}" is imported in your script but has not been installed via pip yet.`,
+            `The package name used in import might differ slightly from the PyPI distribution name.`,
+            `A sub-dependency required by your Telegram framework is missing.`,
+          ],
+          suggestedFix: `Install the missing package "${pkg}" using the 1-click install button below or add it to requirements.txt.`,
+          codeFix: `# Install the package on host:\npip install ${localDetectedPackages.join(' ')}`,
+          suggestedCommand: `pip install ${localDetectedPackages.join(' ')}`,
+          missingPackages: localDetectedPackages,
+          requiredPackages: localDetectedPackages,
+          autoFixable: true,
+          readyToUsePrompt: `My Python Telegram bot encountered a ModuleNotFoundError for '${pkg}'. Please provide the code or dependency requirements to fix this.\n\nError:\n${rawLogText.slice(-1000)}`,
+          confidence: 0.95,
+        };
+      }
+
       return {
         isError: true,
+        errorType: 'Runtime Execution Error',
         friendlyTitle: 'Runtime Execution Error',
-        friendlyMessage: 'Bot exited with an error. Review the traceback details in the console.',
-        suggestedFix: 'Check bot credentials and ensure required dependencies are installed.',
+        explanation: 'The bot process encountered an unexpected exception or stopped during execution.',
+        friendlyMessage: 'The bot process encountered an unexpected exception or stopped during execution.',
+        rootCause: rawLogText.slice(-200),
+        possibilities: [
+          'An unhandled exception occurred in an async handler or event loop.',
+          'Database file access or network connection was interrupted.',
+          'Bot token or environment configuration was incomplete.'
+        ],
+        suggestedFix: 'Review the terminal traceback lines in the console stream and adjust the offending code snippet.',
+        codeFix: undefined,
+        suggestedCommand: undefined,
+        missingPackages: [],
         requiredPackages: [],
         autoFixable: false,
-        confidence: 0.5,
+        readyToUsePrompt: `Here are the logs from my Python Telegram bot which exited unexpectedly:\n\n${rawLogText.slice(-1500)}\n\nPlease diagnose why this happened and provide the fixed code.`,
+        confidence: 0.7,
       };
     }
   }
@@ -154,7 +280,6 @@ Respond ONLY with a valid JSON object matching this schema:
     files: Array<{ fileName: string; content: string }>
   ): Promise<GroqPackageDetectionResult> {
     try {
-      // Build a condensed summary of import statements and code
       const codeSnippets = files
         .filter(f => f.fileName.endsWith('.py') || f.fileName === 'requirements.txt' || f.fileName.endsWith('.json'))
         .map(f => `--- File: ${f.fileName} ---\n${f.content.slice(0, 4000)}`)
@@ -228,7 +353,7 @@ Respond ONLY with a valid JSON object matching this schema:
     if (!bot) throw new Error('Bot not found or unauthorized');
 
     const cleanPkgs = packages
-      .map(p => p.trim())
+      .map(p => this.resolvePypiPackageName(p.trim()))
       .filter(p => p.length > 0 && /^[a-zA-Z0-9_.-]+$/.test(p));
 
     if (cleanPkgs.length === 0) {
@@ -373,3 +498,4 @@ Respond ONLY with a valid JSON object matching this schema:
     });
   }
 }
+

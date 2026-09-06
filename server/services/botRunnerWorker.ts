@@ -21,6 +21,7 @@ import { PythonValidator, PythonValidationResult } from './pythonValidator';
 import { LogManager } from './logManager';
 import { ErrorTranslator } from './errorTranslator';
 import { PythonResiliencyEngine } from './pythonResiliencyEngine';
+import { GroqAiService } from './groqAiService';
 
 export type ContainerState = 'STARTING' | 'ACTIVE' | 'PAUSED' | 'STOPPED' | 'ERROR' | 'EXPIRED';
 
@@ -74,6 +75,7 @@ export class BotRunnerWorker extends EventEmitter {
   private sandboxes: Map<string, ContainerSandboxConfig> = new Map();
   private activeProcesses: Map<string, ChildProcess> = new Map();
   private telemetries: Map<string, ContainerTelemetry> = new Map();
+  private autoHealAttempts: Map<string, { count: number; lastTime: number }> = new Map();
   private runnerInterval: NodeJS.Timeout | null = null;
   private readonly workerSecretToken: string;
 
@@ -659,11 +661,51 @@ export class BotRunnerWorker extends EventEmitter {
         lines.forEach((line: string) => LogManager.appendLog(botId, userId, 'error', line));
       });
 
-      child.on('close', (code) => {
-        if (code === 0) {
-          LogManager.appendLog(botId, userId, 'system', `[Terminal] [INFO] Bot process completed normally (exit code 0).`);
-        } else {
-          // If we captured an error in stderrBuffer, check if a specific root cause can be highlighted
+      child.on('close', async (code) => {
+        if (code !== 0) {
+          // Check if failure is due to missing packages and auto-heal
+          const missingMatch = stderrBuffer.match(/No module named ['"]([^'"]+)['"]/i) ||
+            stderrBuffer.match(/ModuleNotFoundError:\s+No module named ['"]?([^'"\n\r]+)['"]?/i) ||
+            stderrBuffer.match(/cannot import name ['"]([^'"]+)['"]/i);
+
+          if (missingMatch) {
+            const rawMod = missingMatch[1].trim().split('.')[0];
+            const pkgToAutoInstall = GroqAiService.resolvePypiPackageName(rawMod);
+
+            const now = Date.now();
+            const healState = this.autoHealAttempts.get(botId) || { count: 0, lastTime: 0 };
+            if (now - healState.lastTime > 120000) {
+              healState.count = 0;
+            }
+
+            if (healState.count < 3 && pkgToAutoInstall) {
+              healState.count += 1;
+              healState.lastTime = now;
+              this.autoHealAttempts.set(botId, healState);
+
+              LogManager.appendLog(botId, userId, 'system', `[Terminal] [AI AUTO-HEALING] 🔍 Detected missing package: ${pkgToAutoInstall}. Auto-installing...`);
+              
+              try {
+                const installRes = await GroqAiService.installPackages(botId, userId, [pkgToAutoInstall]);
+                if (installRes.success) {
+                  LogManager.appendLog(botId, userId, 'system', `[Terminal] [AI AUTO-HEALING] ⚡ Successfully installed ${pkgToAutoInstall}. Automatically redeploying bot now...`);
+                  setTimeout(async () => {
+                    try {
+                      await db.updateBotStatus(botId, userId, 'start');
+                    } catch (err) {
+                      console.error('[AutoHeal restart failed]', err);
+                    }
+                  }, 800);
+                  this.activeProcesses.delete(botId);
+                  return;
+                }
+              } catch (e: any) {
+                LogManager.appendLog(botId, userId, 'warn', `[Terminal] [AI AUTO-HEALING] Auto-install attempt error: ${e.message}`);
+              }
+            }
+          }
+
+          // If we captured a network timeout in stderrBuffer
           if (
             stderrBuffer.includes('ConnectTimeout') ||
             stderrBuffer.includes('httpcore.ConnectTimeout') ||

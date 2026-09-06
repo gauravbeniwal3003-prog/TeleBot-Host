@@ -71,6 +71,29 @@ export class LogManager {
   public static readonly MAX_LOGS_PER_BOT = 500; // Cap log history per bot to protect VPS disk
   public static readonly MAX_LOG_PAYLOAD_BYTES = 256 * 1024; // 256 KB
 
+  public static shouldSuppressLog(rawMessage: string): boolean {
+    if (!rawMessage || typeof rawMessage !== 'string') return true;
+    const msg = rawMessage.trim();
+    if (!msg) return true;
+
+    // Suppress empty journalctl outputs and exit code 0 info notices
+    if (msg.includes('-- No entries --')) return true;
+    if (msg.includes('Bot process completed normally (exit code 0)')) return true;
+    if (msg === '[Terminal] -- No entries --') return true;
+
+    // Suppress unsolicited token policing & security nagging
+    if (
+      msg.includes('Using hardcoded token') ||
+      msg.includes('PLEASE CHANGE YOUR BOT TOKEN') ||
+      msg.includes('This token is exposed') ||
+      msg.includes('Go to @BotFather on Telegram to create a new token')
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
   /**
    * Appends a log entry for a bot with strict user isolation and automatic rotation
    */
@@ -80,7 +103,11 @@ export class LogManager {
     level: 'info' | 'warn' | 'error' | 'debug' | 'system',
     rawMessage: string,
     metadata?: Record<string, any>
-  ): { log: DBBotLog; translatedError?: TranslatedError } {
+  ): { log?: DBBotLog; translatedError?: TranslatedError } {
+    if (this.shouldSuppressLog(rawMessage)) {
+      return {};
+    }
+
     let friendlyMessage: string | undefined;
     let suggestedFix: string | undefined;
     let technicalDetails: string | undefined;
@@ -176,6 +203,9 @@ export class LogManager {
         // journalctl may fail if unit doesn't exist yet
       }
     }
+
+    // Filter out suppressed logs (such as empty journal indicators or token policing)
+    rawLogs = rawLogs.filter(l => !this.shouldSuppressLog(l.message));
 
     const totalCount = rawLogs.length;
 

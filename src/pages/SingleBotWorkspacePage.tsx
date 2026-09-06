@@ -84,6 +84,8 @@ export const SingleBotWorkspacePage: React.FC<SingleBotWorkspacePageProps> = ({ 
   // Groq AI Diagnosis states
   const [isDiagnosingWithGroq, setIsDiagnosingWithGroq] = useState(false);
   const [groqDiagnosis, setGroqDiagnosis] = useState<any | null>(null);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [copiedCodeFix, setCopiedCodeFix] = useState(false);
 
   // Telegram Token Verification states
   const [isVerifyingToken, setIsVerifyingToken] = useState(false);
@@ -777,13 +779,86 @@ if __name__ == "__main__":
     if (!bot) return;
     setIsDiagnosingWithGroq(true);
     try {
-      const res = await api.groqDiagnose(bot.id, logText);
+      let rawToDiagnose = logText;
+      if (!rawToDiagnose && logs && logs.length > 0) {
+        rawToDiagnose = logs.map(l => `[${(l.level || 'info').toUpperCase()}] ${l.message || ''}`).join('\n');
+      }
+      const res = await api.groqDiagnose(bot.id, rawToDiagnose);
       setGroqDiagnosis(res.diagnosis);
       addToast('success', 'Groq AI analysis ready!');
     } catch (err: any) {
       addToast('error', err.message || 'Groq AI diagnosis failed');
     } finally {
       setIsDiagnosingWithGroq(false);
+    }
+  };
+
+  const handleAutoFixAndRedeploy = async (pkgs: string[]) => {
+    if (!bot || pkgs.length === 0) return;
+    setIsInstallingPackages(true);
+    addToast('info', `Auto-fixing bot: Installing ${pkgs.join(', ')}...`);
+    try {
+      const res = await api.groqAutoFix(bot.id, pkgs);
+      if (res.success) {
+        addToast('success', res.message || 'Auto-fix applied and bot redeployed!');
+        if (res.bot) setBot(res.bot);
+        refreshBots();
+        fetchBotLogs();
+      }
+    } catch (err: any) {
+      addToast('error', err.message || 'Auto-fix failed');
+    } finally {
+      setIsInstallingPackages(false);
+    }
+  };
+
+  const handleCopyPrompt = (promptText?: string) => {
+    const textToCopy = promptText || groqDiagnosis?.readyToUsePrompt;
+    if (!textToCopy) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(textToCopy);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = textToCopy;
+        ta.style.position = 'fixed';
+        ta.style.left = '-999999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedPrompt(true);
+      addToast('success', 'AI prompt copied to clipboard! Paste into ChatGPT, Claude, or Cursor.');
+      setTimeout(() => setCopiedPrompt(false), 2500);
+    } catch {
+      addToast('error', 'Failed to copy prompt');
+    }
+  };
+
+  const handleCopyCodeFix = (code?: string) => {
+    const textToCopy = code || groqDiagnosis?.codeFix;
+    if (!textToCopy) return;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(textToCopy);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = textToCopy;
+        ta.style.position = 'fixed';
+        ta.style.left = '-999999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopiedCodeFix(true);
+      addToast('success', 'Code snippet copied to clipboard!');
+      setTimeout(() => setCopiedCodeFix(false), 2500);
+    } catch {
+      addToast('error', 'Failed to copy code snippet');
     }
   };
 
@@ -2531,64 +2606,155 @@ if __name__ == "__main__":
 
       {/* Groq AI Diagnosis Banner if active */}
       {groqDiagnosis && (
-        <div className="bg-slate-900 border border-orange-500/50 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-start justify-between gap-2 border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg shadow-xs">
-                <Sparkles className="w-4 h-4" />
+        <div className="bg-slate-900 border-2 border-orange-500/60 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl shadow-md">
+                <Sparkles className="w-5 h-5" />
               </span>
               <div>
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <span>Groq AI Error Diagnosis</span>
-                  <span className="text-[10px] px-2 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full uppercase font-mono">
+                <h4 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  <span>{groqDiagnosis.friendlyTitle || 'Groq AI Error Diagnosis'}</span>
+                  <span className="text-[10px] px-2.5 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded-full uppercase font-mono font-bold">
                     {groqDiagnosis.errorType || 'Runtime Issue'}
                   </span>
                 </h4>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  AI-analyzed runtime exception from your bot console
+                  AI-analyzed root cause, possibilities, and ready-to-use fixes from your bot console
                 </p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => setGroqDiagnosis(null)}
-              className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+              className="text-slate-400 hover:text-white text-xs px-2.5 py-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
             >
               Dismiss
             </button>
           </div>
 
-          <div className="space-y-2 text-xs">
-            <div className="text-slate-200 leading-relaxed font-sans bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
-              <span className="text-orange-400 font-semibold block mb-1">Issue Overview:</span>
-              {groqDiagnosis.explanation}
+          <div className="space-y-3 text-xs">
+            {/* 1. Why this occurred */}
+            <div className="text-slate-200 leading-relaxed font-sans bg-slate-950/80 p-3.5 rounded-xl border border-slate-800">
+              <span className="text-orange-400 font-bold block mb-1 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 text-orange-400" />
+                <span>Why this error occurred:</span>
+              </span>
+              <p className="text-slate-300 leading-relaxed">{groqDiagnosis.explanation || groqDiagnosis.friendlyMessage}</p>
+              {groqDiagnosis.rootCause && groqDiagnosis.rootCause !== groqDiagnosis.explanation && (
+                <div className="mt-2 pt-2 border-t border-slate-800/80 text-slate-400 font-mono text-[11px]">
+                  <span className="text-slate-500">Technical Root:</span> {groqDiagnosis.rootCause}
+                </div>
+              )}
             </div>
 
-            {groqDiagnosis.suggestedFix && (
-              <div className="text-emerald-300 leading-relaxed font-sans bg-emerald-950/30 p-3 rounded-xl border border-emerald-800/40">
-                <span className="text-emerald-400 font-semibold block mb-1">Suggested Fix:</span>
-                {groqDiagnosis.suggestedFix}
+            {/* 2. Possibilities / Contributing factors */}
+            {groqDiagnosis.possibilities && groqDiagnosis.possibilities.length > 0 && (
+              <div className="bg-slate-950/60 p-3.5 rounded-xl border border-slate-800/80 space-y-1.5">
+                <span className="text-amber-400 font-bold block mb-1">
+                  🔍 Possibilities & Contributing Factors:
+                </span>
+                <ul className="space-y-1 pl-1">
+                  {groqDiagnosis.possibilities.map((pos: string, idx: number) => (
+                    <li key={idx} className="flex items-start gap-2 text-slate-300 leading-relaxed">
+                      <span className="text-amber-400 shrink-0">•</span>
+                      <span>{pos}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
-            {groqDiagnosis.missingPackages && groqDiagnosis.missingPackages.length > 0 && (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-amber-950/30 p-3 rounded-xl border border-amber-800/40">
+            {/* 3. Suggested fix */}
+            {groqDiagnosis.suggestedFix && (
+              <div className="text-emerald-300 leading-relaxed font-sans bg-emerald-950/30 p-3.5 rounded-xl border border-emerald-800/40">
+                <span className="text-emerald-400 font-bold block mb-1 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>Fixes to Implement:</span>
+                </span>
+                <p className="leading-relaxed">{groqDiagnosis.suggestedFix}</p>
+                {groqDiagnosis.suggestedCommand && (
+                  <div className="mt-2 pt-2 border-t border-emerald-800/30 font-mono text-[11px] text-emerald-200">
+                    <span className="text-emerald-400 font-bold">Terminal Command: </span>
+                    <code className="bg-emerald-950 px-2 py-0.5 rounded border border-emerald-700/50">
+                      {groqDiagnosis.suggestedCommand}
+                    </code>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 4. Ready-to-use Code Fix snippet */}
+            {groqDiagnosis.codeFix && (
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sky-400 font-bold flex items-center gap-1.5">
+                    <Code2 className="w-4 h-4 text-sky-400" />
+                    <span>Ready-to-Use Code Fix:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyCodeFix(groqDiagnosis.codeFix)}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors border border-slate-700"
+                  >
+                    {copiedCodeFix ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedCodeFix ? 'Copied Code!' : 'Copy Code'}</span>
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-slate-900 rounded-lg text-[11px] font-mono text-slate-200 overflow-x-auto whitespace-pre leading-relaxed border border-slate-800">
+                  {groqDiagnosis.codeFix}
+                </pre>
+              </div>
+            )}
+
+            {/* 5. Missing Packages & Auto-Fix Redeploy */}
+            {((groqDiagnosis.missingPackages && groqDiagnosis.missingPackages.length > 0) || (groqDiagnosis.requiredPackages && groqDiagnosis.requiredPackages.length > 0)) && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-r from-amber-950/40 to-orange-950/40 p-4 rounded-xl border border-amber-800/60">
                 <div>
-                  <span className="text-amber-400 font-semibold text-xs block">
-                    Missing Packages Detected:
+                  <span className="text-amber-400 font-bold text-xs block">
+                    ⚡ Missing Package(s) Detected:
                   </span>
-                  <span className="text-amber-200 text-[11px] font-mono">
-                    {groqDiagnosis.missingPackages.join(', ')}
+                  <span className="text-amber-200 text-xs font-mono">
+                    {(groqDiagnosis.missingPackages || groqDiagnosis.requiredPackages).join(', ')}
                   </span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isInstallingPackages}
+                    onClick={() => handleAutoFixAndRedeploy(groqDiagnosis.missingPackages || groqDiagnosis.requiredPackages)}
+                    className="px-4 py-2.5 bg-gradient-to-r from-orange-500 via-amber-500 to-orange-600 hover:opacity-90 text-white rounded-xl text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Zap className="w-4 h-4 fill-current" />
+                    <span>Auto-Fix & Redeploy Bot</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 6. Ready-to-Use Prompt Exporter for Any AI */}
+            {groqDiagnosis.readyToUsePrompt && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-indigo-950/40 p-3.5 rounded-xl border border-indigo-800/40">
+                <div className="space-y-0.5">
+                  <span className="text-indigo-300 font-bold text-xs block flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Prompt for External AI (ChatGPT / Claude / Cursor):</span>
+                  </span>
+                  <p className="text-[11px] text-indigo-200/80">
+                    Copy the pre-formatted error diagnosis prompt and paste it into your favorite AI assistant to generate code fixes.
+                  </p>
                 </div>
                 <button
                   type="button"
-                  disabled={isInstallingPackages}
-                  onClick={() => handleInstallPackages(groqDiagnosis.missingPackages)}
-                  className="px-4 py-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                  onClick={() => handleCopyPrompt(groqDiagnosis.readyToUsePrompt)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-sm border shrink-0 ${
+                    copiedPrompt
+                      ? 'bg-emerald-600 border-emerald-500 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white'
+                  }`}
                 >
-                  <Zap className="w-3.5 h-3.5" />
-                  <span>⚡ 1-Click Install ({groqDiagnosis.missingPackages.length})</span>
+                  {copiedPrompt ? <Check className="w-3.5 h-3.5 text-white" /> : <Copy className="w-3.5 h-3.5 text-white" />}
+                  <span>{copiedPrompt ? 'Prompt Copied!' : 'Copy AI Prompt'}</span>
                 </button>
               </div>
             )}

@@ -256,6 +256,13 @@ class ApiService {
     });
   }
 
+  async groqAutoFix(botId: string, packages: string[]): Promise<{ success: boolean; message: string; bot?: TelegramBot; installOutput?: string }> {
+    return this.request<{ success: boolean; message: string; bot?: TelegramBot; installOutput?: string }>(`/api/bots/${botId}/ai/auto-fix`, {
+      method: 'POST',
+      body: JSON.stringify({ packages }),
+    });
+  }
+
   async groqDetectPackages(botId: string): Promise<{
     packages: Array<{ name: string; description: string; importName: string }>;
     installCommand: string;
