@@ -101,27 +101,49 @@ filesRouter.get('/:botId/files', async (req: Request, res: Response): Promise<vo
     });
 
     // Then update with VPS physical files, adding any that are missing
+    let dbModified = false;
     vpsFiles.forEach(vf => {
+      const fileName = path.basename(vf.filePath);
+      const mime = getMimeType(fileName);
       if (mergedFiles.has(vf.filePath)) {
         const existing = mergedFiles.get(vf.filePath);
         existing.fileSizeBytes = vf.size;
         existing.updatedAt = vf.mtime;
+        // Check if DB record needs size/time update
+        const dbRec = dbFiles.find(df => df.file_path === vf.filePath);
+        if (dbRec && dbRec.file_size_bytes !== vf.size) {
+          dbRec.file_size_bytes = vf.size;
+          dbRec.updated_at = vf.mtime;
+          dbModified = true;
+        }
       } else {
-        const fileName = path.basename(vf.filePath);
-        mergedFiles.set(vf.filePath, {
-          id: `vps_${Buffer.from(vf.filePath).toString('base64')}`,
+        const newFileObj = {
+          id: `vps_${Buffer.from(vf.filePath).toString('base64').replace(/=/g, '')}`,
           filePath: vf.filePath,
           virtualPath: StorageManager.getVirtualSandboxPath(botId, vf.filePath),
           fileName: fileName,
           fileSizeBytes: vf.size,
-          mimeType: getMimeType(fileName),
+          mimeType: mime,
           isDirectory: vf.isDirectory,
           content: null,
           updatedAt: vf.mtime,
           isEntryPoint: vf.filePath === bot.entry_point || fileName === bot.entry_point,
-        });
+        };
+        mergedFiles.set(vf.filePath, newFileObj);
+
+        // Auto-register discovered runtime file (like .db, .sqlite, .json) into DB metadata
+        try {
+          db.saveDiscoveredFile(botId, userId, vf.filePath, fileName, vf.size, vf.mtime, mime);
+          dbModified = true;
+        } catch (e) {
+          // ignore
+        }
       }
     });
+
+    if (dbModified) {
+      db.save();
+    }
 
     const storageSummary = StorageManager.calculateStorageSummary(userId, botId);
 
@@ -129,7 +151,7 @@ filesRouter.get('/:botId/files', async (req: Request, res: Response): Promise<vo
       files: Array.from(mergedFiles.values()),
       storageUsageMB: storageSummary.usedStorageMB,
       storageSummary,
-      memoryLimitMB: bot.memory_limit_mb || 512,
+      memoryLimitMB: bot.memory_limit_mb || 150,
     });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Failed to fetch bot files' });

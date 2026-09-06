@@ -161,6 +161,7 @@ export interface DBOrder {
   unused_credit?: number;
   payment_method?: string;
   payment_id?: string;
+  payment_session_id?: string;
   customer_name: string;
   customer_email: string;
   customer_phone?: string;

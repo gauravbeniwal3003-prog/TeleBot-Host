@@ -2178,8 +2178,16 @@ if __name__ == "__main__":
               {files.map((file) => (
                 <div key={file.filePath} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="p-2 bg-sky-50 text-[#0088cc] rounded-lg shrink-0">
-                      <FileCode className="w-4 h-4" />
+                    <div className={`p-2 rounded-lg shrink-0 ${
+                      file.fileName.endsWith('.db') || file.fileName.endsWith('.sqlite') || file.fileName.endsWith('.sqlite3') || file.fileName.endsWith('.db-wal') || file.fileName.endsWith('.session')
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : 'bg-sky-50 text-[#0088cc]'
+                    }`}>
+                      {file.fileName.endsWith('.db') || file.fileName.endsWith('.sqlite') || file.fileName.endsWith('.sqlite3') || file.fileName.endsWith('.db-wal') || file.fileName.endsWith('.session') ? (
+                        <Database className="w-4 h-4" />
+                      ) : (
+                        <FileCode className="w-4 h-4" />
+                      )}
                     </div>
                     {fileToRename?.filePath === file.filePath ? (
                       <div className="flex items-center gap-2 flex-1 max-w-sm">
@@ -2204,6 +2212,16 @@ if __name__ == "__main__":
                           {(file.fileName === bot.entryPoint || file.filePath === bot.entryPoint) && (
                             <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
                               Entry Point
+                            </span>
+                          )}
+                          {(file.fileName.endsWith('.db') || file.fileName.endsWith('.sqlite') || file.fileName.endsWith('.sqlite3')) && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                              <Database className="w-2.5 h-2.5" /> SQLite DB
+                            </span>
+                          )}
+                          {file.fileName.endsWith('.session') && (
+                            <span className="text-[10px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded">
+                              Session
                             </span>
                           )}
                         </div>

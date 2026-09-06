@@ -361,6 +361,24 @@ class RelationalDatabase {
       });
     }
 
+    if (this.data.subscriptions) {
+      this.data.subscriptions.forEach((sub, idx) => {
+        if (!sub.ram_limit_mb || sub.ram_limit_mb < 150) {
+          this.data.subscriptions[idx].ram_limit_mb = 150;
+          migrated = true;
+        }
+      });
+    }
+
+    if (this.data.bots) {
+      this.data.bots.forEach((bot, idx) => {
+        if (!bot.memory_limit_mb || bot.memory_limit_mb < 150) {
+          this.data.bots[idx].memory_limit_mb = 150;
+          migrated = true;
+        }
+      });
+    }
+
     return migrated;
   }
 
@@ -532,7 +550,7 @@ class RelationalDatabase {
           auto_renew: false,
           total_bot_slots: 3,
           active_bot_count: 1,
-          ram_limit_mb: 100,
+          ram_limit_mb: 150,
           storage_limit_gb: 2,
           created_at: userObj.created_at,
           updated_at: userObj.updated_at,
@@ -629,7 +647,7 @@ class RelationalDatabase {
       auto_renew: false,
       total_bot_slots: 3,
       active_bot_count: 1,
-      ram_limit_mb: 100,
+      ram_limit_mb: 150,
       storage_limit_gb: 0.05,
       db_storage_mb: 50,
       max_file_size_mb: 5,
@@ -1288,7 +1306,7 @@ class RelationalDatabase {
       webhook_url: data.webhookEnabled ? `https://wh.telegrambots.io/hook/${botId}` : undefined,
       cpu_usage: 0,
       memory_usage_mb: 0,
-      memory_limit_mb: sub?.ram_limit_mb ? Math.floor(sub.ram_limit_mb / Math.max(1, maxActiveRunning)) : 100,
+      memory_limit_mb: sub?.ram_limit_mb ? Math.max(150, Math.floor(sub.ram_limit_mb / Math.max(1, maxActiveRunning))) : 150,
       storage_usage_mb: 0,
       uptime_seconds: 0,
       restart_count: 0,
@@ -1816,6 +1834,46 @@ class RelationalDatabase {
     return { file: savedFile, totalStorageMB: totalMB, validation: validationResult };
   }
 
+  saveDiscoveredFile(
+    botId: string,
+    userId: string,
+    filePath: string,
+    fileName: string,
+    sizeBytes: number,
+    mtime: string,
+    mimeType: string
+  ): DBBotFile {
+    const bot = this.getBotDirect(botId);
+    const existingIndex = this.data.files.findIndex(
+      (f) => f.bot_id === botId && f.file_path === filePath
+    );
+
+    if (existingIndex !== -1) {
+      const existing = this.data.files[existingIndex];
+      existing.file_size_bytes = sizeBytes;
+      existing.updated_at = mtime;
+      return existing;
+    }
+
+    const newFile: DBBotFile = {
+      id: `file_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      bot_id: botId,
+      project_id: bot?.project_id,
+      user_id: userId,
+      file_path: filePath,
+      file_name: fileName,
+      file_size_bytes: sizeBytes,
+      mime_type: mimeType || 'text/plain',
+      is_directory: false,
+      content: undefined,
+      created_at: mtime || new Date().toISOString(),
+      updated_at: mtime || new Date().toISOString(),
+    };
+
+    this.data.files.push(newFile);
+    return newFile;
+  }
+
   deleteBotFile(botId: string, userId: string, filePath: string): void {
     const bot = this.getBotById(botId, userId);
     if (!bot) throw new Error('Unauthorized');
@@ -1931,6 +1989,41 @@ class RelationalDatabase {
 
   getOrder(orderId: string): DBOrder | undefined {
     return this.data.orders.find((o) => o.order_id === orderId);
+  }
+
+  findActivePendingOrder(
+    userId: string,
+    criteria: {
+      planId?: string;
+      projectId?: string;
+      totalAmount?: number;
+      maxAgeMinutes?: number;
+    }
+  ): DBOrder | undefined {
+    const maxAgeMs = (criteria.maxAgeMinutes || 10) * 60 * 1000;
+    const now = Date.now();
+
+    return this.data.orders.find((o) => {
+      if (o.user_id !== userId) return false;
+      if (o.status !== 'pending') return false;
+      if (criteria.planId && o.plan_id !== criteria.planId) return false;
+      if (criteria.projectId && o.project_id !== criteria.projectId) return false;
+      if (criteria.totalAmount !== undefined && Math.abs(o.total_amount - criteria.totalAmount) > 0.01) return false;
+
+      const orderTime = new Date(o.created_at).getTime();
+      if (isNaN(orderTime)) return false;
+      const age = now - orderTime;
+      return age >= 0 && age <= maxAgeMs;
+    });
+  }
+
+  updateOrder(orderId: string, updates: Partial<DBOrder>): DBOrder | undefined {
+    const order = this.getOrder(orderId);
+    if (!order) return undefined;
+    Object.assign(order, updates);
+    order.updated_at = new Date().toISOString();
+    this.save();
+    return order;
   }
 
   createOrder(orderData: Omit<DBOrder, 'created_at' | 'updated_at'>): DBOrder {

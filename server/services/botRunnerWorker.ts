@@ -102,7 +102,7 @@ export class BotRunnerWorker extends EventEmitter {
     envVars?: Record<string, string>;
   }): ContainerSandboxConfig {
     const containerId = `cnt_${params.botId.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
-    const memLimit = params.memoryLimitMB ? Math.min(110, params.memoryLimitMB) : 100;
+    const memLimit = params.memoryLimitMB ? Math.max(150, params.memoryLimitMB) : 150;
     const storageQuota = params.storageQuotaMB || 250;
 
     const sandbox: ContainerSandboxConfig = {
@@ -273,7 +273,7 @@ export class BotRunnerWorker extends EventEmitter {
         botName: bot ? bot.name : botId,
         framework: bot ? bot.framework : 'aiogram',
         entryPoint: bot ? bot.entry_point || 'main.py' : 'main.py',
-        memoryLimitMB: bot ? Math.min(110, bot.memory_limit_mb || 100) : 100,
+        memoryLimitMB: bot ? Math.max(150, bot.memory_limit_mb || 150) : 150,
       });
       telemetry = this.telemetries.get(botId);
     }
@@ -309,10 +309,10 @@ export class BotRunnerWorker extends EventEmitter {
         };
       }
 
-      // Update sandbox memory & storage limits from active subscription (strictly capped at 100MB per bot, 110MB burst)
+      // Update sandbox memory & storage limits from active subscription (150MB baseline per bot with 180MB burst headroom)
       const perBotRAM = userSub.ram_limit_mb
-        ? Math.min(110, Math.floor(userSub.ram_limit_mb / Math.max(1, userSub.active_bot_count || 1)))
-        : 100;
+        ? Math.max(150, Math.floor(userSub.ram_limit_mb / Math.max(1, userSub.active_bot_count || 1)))
+        : 150;
       sandbox.memoryLimitMB = perBotRAM;
       telemetry.memoryLimitMB = perBotRAM;
 
@@ -1044,9 +1044,9 @@ export class BotRunnerWorker extends EventEmitter {
           telemetry.networkRxBytes += Math.floor(Math.random() * 512 + 128);
           telemetry.networkTxBytes += Math.floor(Math.random() * 256 + 64);
 
-          // Enforce 100MB memory limit (with 110MB hard burst ceiling)
-          const memoryLimit = telemetry.memoryLimitMB || 100;
-          const hardCeiling = Math.min(110, memoryLimit + 10);
+          // Enforce 150MB baseline plan memory limit (with 180MB hard burst ceiling)
+          const memoryLimit = Math.max(150, telemetry.memoryLimitMB || 150);
+          const hardCeiling = Math.max(180, memoryLimit + 30);
 
           if (measuredRSSMB > hardCeiling) {
             const botObj = db.getBotDirect(botId);
@@ -1056,19 +1056,19 @@ export class BotRunnerWorker extends EventEmitter {
               botId,
               bUserId,
               'error',
-              `[RESOURCE LIMIT] [MEMORY EXCEEDED] Bot memory reached ${ramPct}% of allocated plan RAM. Process terminated safely to protect system stability.`
+              `[RESOURCE LIMIT] [MEMORY EXCEEDED] Bot memory reached ${ramPct}% (${measuredRSSMB}MB / ${memoryLimit}MB). Process halted gracefully to protect host stability.`
             );
             try {
-              child.kill('SIGKILL');
+              child.kill('SIGTERM');
             } catch (e) {}
             this.activeProcesses.delete(botId);
             telemetry.state = 'ERROR';
-            telemetry.lastErrorMessage = `Memory limit exceeded: ${ramPct}% allocation reached`;
+            telemetry.lastErrorMessage = `Memory limit exceeded: ${ramPct}% allocation reached (${measuredRSSMB}MB)`;
             if (botObj) {
               botObj.status = 'error';
               botObj.memory_usage_mb = measuredRSSMB;
               botObj.last_error = `Memory limit exceeded (${ramPct}%)`;
-              botObj.last_error_friendly = `Bot exceeded its plan RAM allocation (${ramPct}%). Process was halted safely.`;
+              botObj.last_error_friendly = `Bot exceeded its plan RAM allocation (${ramPct}% - ${measuredRSSMB}MB). Process was halted safely. Upgrade RAM to avoid interruptions.`;
               db.save();
             }
             continue;
@@ -1080,7 +1080,7 @@ export class BotRunnerWorker extends EventEmitter {
               botId,
               bUserId,
               'warn',
-              `[RESOURCE LIMIT] [HIGH MEMORY WARNING] Bot is consuming ${ramPct}% of its allocated plan RAM.`
+              `[RESOURCE LIMIT] [HIGH MEMORY WARNING] Bot is consuming ${ramPct}% (${measuredRSSMB}MB / ${memoryLimit}MB) of its allocated plan RAM.`
             );
           }
 

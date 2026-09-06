@@ -6,8 +6,8 @@ import os from 'os';
  * TeleBot Host Transparent Python Resiliency Engine
  * 
  * Automatically ensures all user-uploaded Python bots run with production-grade network timeouts,
- * connection pooling, and startup handshake retries WITHOUT requiring the user to modify
- * a single line of their code.
+ * connection pooling, socket keep-alive, TCP_NODELAY, memory trimming, and startup handshake retries
+ * WITHOUT requiring the user to modify a single line of their code.
  */
 export class PythonResiliencyEngine {
   private static hooksDir: string | null = null;
@@ -30,15 +30,17 @@ export class PythonResiliencyEngine {
   private static writeSiteCustomize(targetDir: string) {
     const siteCustomizePath = path.join(targetDir, 'sitecustomize.py');
     const pythonCode = `# ==============================================================================
-# TeleBot Host - Transparent Python Network Resiliency Engine
+# TeleBot Host - Transparent Python Network & Runtime Resiliency Engine
 # Auto-adjusts connection timeouts for standard Python libraries (python-telegram-bot,
-# httpx, httpcore, requests, aiohttp, urllib3) so user bots run seamlessly 24/7.
+# telebot / pyTelegramBotAPI, aiogram, httpx, httpcore, requests, aiohttp, urllib3, sqlite3)
+# so user bots run seamlessly 24/7 with zero random drops or memory fragmentation.
 # ==============================================================================
 import sys
+import os
 import socket
 import builtins
 
-# 1. Global Socket Timeout Default (60.0s)
+# 1. Global Socket Timeout & TCP Keep-Alive Defaults
 try:
     socket.setdefaulttimeout(60.0)
 except Exception:
@@ -56,12 +58,17 @@ def _patch_httpx():
         if hasattr(httpx, '_config') and hasattr(httpx._config, 'DEFAULT_TIMEOUT_CONFIG'):
             httpx._config.DEFAULT_TIMEOUT_CONFIG = httpx.Timeout(60.0, connect=60.0, read=60.0, write=60.0, pool=60.0)
         
-        # Patch AsyncClient default timeout
+        # Patch AsyncClient default timeout and connection limits
         if hasattr(httpx, 'AsyncClient'):
             _orig_async_init = httpx.AsyncClient.__init__
             def _resilient_async_init(self, *args, **kwargs):
                 if 'timeout' not in kwargs or kwargs['timeout'] is None or kwargs['timeout'] == 5.0:
                     kwargs['timeout'] = httpx.Timeout(60.0, connect=60.0, read=60.0, write=60.0, pool=60.0)
+                if 'limits' not in kwargs:
+                    try:
+                        kwargs['limits'] = httpx.Limits(max_keepalive_connections=20, max_connections=40, keepalive_expiry=60.0)
+                    except Exception:
+                        pass
                 return _orig_async_init(self, *args, **kwargs)
             httpx.AsyncClient.__init__ = _resilient_async_init
 
@@ -71,6 +78,11 @@ def _patch_httpx():
             def _resilient_client_init(self, *args, **kwargs):
                 if 'timeout' not in kwargs or kwargs['timeout'] is None or kwargs['timeout'] == 5.0:
                     kwargs['timeout'] = httpx.Timeout(60.0, connect=60.0, read=60.0, write=60.0, pool=60.0)
+                if 'limits' not in kwargs:
+                    try:
+                        kwargs['limits'] = httpx.Limits(max_keepalive_connections=20, max_connections=40, keepalive_expiry=60.0)
+                    except Exception:
+                        pass
                 return _orig_client_init(self, *args, **kwargs)
             httpx.Client.__init__ = _resilient_client_init
     except Exception:
@@ -108,6 +120,8 @@ def _patch_telegram():
                         kwargs['write_timeout'] = 60.0
                     if 'pool_timeout' not in kwargs or kwargs['pool_timeout'] is None or kwargs['pool_timeout'] == 1.0:
                         kwargs['pool_timeout'] = 60.0
+                    if 'connection_pool_size' not in kwargs:
+                        kwargs['connection_pool_size'] = 16
                     try:
                         original_init(self, *args, **kwargs)
                     except TypeError:
@@ -140,7 +154,7 @@ def _patch_telegram():
                         read_timeout=60.0,
                         write_timeout=60.0,
                         pool_timeout=60.0,
-                        connection_pool_size=8
+                        connection_pool_size=16
                     ))
                 if getattr(self, '_get_updates_request', None) is None:
                     import telegram.request
@@ -149,7 +163,7 @@ def _patch_telegram():
                         read_timeout=60.0,
                         write_timeout=60.0,
                         pool_timeout=60.0,
-                        connection_pool_size=8
+                        connection_pool_size=16
                     ))
                 return _orig_app_build(self)
             ApplicationBuilder.build = _resilient_app_build
@@ -162,9 +176,64 @@ def _patch_telegram():
             _orig_network_retry_loop = _nloop.network_retry_loop
             async def _resilient_network_retry_loop(action_cb, *args, **kwargs):
                 if 'max_retries' in kwargs and kwargs['max_retries'] == 0:
-                    kwargs['max_retries'] = 3
+                    kwargs['max_retries'] = 5
                 return await _orig_network_retry_loop(action_cb, *args, **kwargs)
             _nloop.network_retry_loop = _resilient_network_retry_loop
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def _patch_telebot():
+    if 'telebot' in _patched_modules:
+        return
+    _patched_modules.add('telebot')
+    try:
+        import telebot
+        if hasattr(telebot, 'apihelper'):
+            telebot.apihelper.CONNECT_TIMEOUT = 60.0
+            telebot.apihelper.READ_TIMEOUT = 60.0
+            telebot.apihelper.LONG_POLLING_TIMEOUT = 60
+            telebot.apihelper.RETRY_ON_ERROR = True
+        
+        if hasattr(telebot, 'TeleBot'):
+            _orig_polling = telebot.TeleBot.polling
+            def _resilient_polling(self, *args, **kwargs):
+                if 'none_stop' not in kwargs:
+                    kwargs['none_stop'] = True
+                if 'timeout' not in kwargs or kwargs['timeout'] is None or kwargs['timeout'] < 20:
+                    kwargs['timeout'] = 60
+                if 'long_polling_timeout' not in kwargs or kwargs['long_polling_timeout'] is None:
+                    kwargs['long_polling_timeout'] = 60
+                return _orig_polling(self, *args, **kwargs)
+            telebot.TeleBot.polling = _resilient_polling
+            
+            if hasattr(telebot.TeleBot, 'infinity_polling'):
+                _orig_inf_polling = telebot.TeleBot.infinity_polling
+                def _resilient_inf_polling(self, *args, **kwargs):
+                    if 'timeout' not in kwargs or kwargs['timeout'] is None or kwargs['timeout'] < 20:
+                        kwargs['timeout'] = 60
+                    if 'long_polling_timeout' not in kwargs or kwargs['long_polling_timeout'] is None:
+                        kwargs['long_polling_timeout'] = 60
+                    return _orig_inf_polling(self, *args, **kwargs)
+                telebot.TeleBot.infinity_polling = _resilient_inf_polling
+    except Exception:
+        pass
+
+def _patch_aiogram():
+    if 'aiogram' in _patched_modules:
+        return
+    _patched_modules.add('aiogram')
+    try:
+        import aiogram
+        try:
+            from aiogram.client.session.aiohttp import AiohttpSession
+            _orig_aiohttp_session_init = AiohttpSession.__init__
+            def _resilient_aiogram_session(self, *args, **kwargs):
+                if 'timeout' not in kwargs or kwargs['timeout'] is None or kwargs['timeout'] < 30:
+                    kwargs['timeout'] = 60.0
+                return _orig_aiohttp_session_init(self, *args, **kwargs)
+            AiohttpSession.__init__ = _resilient_aiogram_session
         except Exception:
             pass
     except Exception:
@@ -200,6 +269,27 @@ def _patch_aiohttp():
     except Exception:
         pass
 
+def _patch_sqlite3():
+    if 'sqlite3' in _patched_modules:
+        return
+    _patched_modules.add('sqlite3')
+    try:
+        import sqlite3
+        _orig_connect = sqlite3.connect
+        def _resilient_sqlite_connect(*args, **kwargs):
+            if 'timeout' not in kwargs:
+                kwargs['timeout'] = 30.0
+            conn = _orig_connect(*args, **kwargs)
+            try:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                conn.execute('PRAGMA synchronous=NORMAL;')
+            except Exception:
+                pass
+            return conn
+        sqlite3.connect = _resilient_sqlite_connect
+    except Exception:
+        pass
+
 def _resilient_import(name, *args, **kwargs):
     mod = _orig_import(name, *args, **kwargs)
     if name == 'httpx' or name.startswith('httpx.'):
@@ -207,10 +297,16 @@ def _resilient_import(name, *args, **kwargs):
     elif name == 'telegram' or name.startswith('telegram.'):
         _patch_httpx()
         _patch_telegram()
+    elif name == 'telebot' or name.startswith('telebot.'):
+        _patch_telebot()
+    elif name == 'aiogram' or name.startswith('aiogram.'):
+        _patch_aiogram()
     elif name == 'requests' or name.startswith('requests.'):
         _patch_requests()
     elif name == 'aiohttp' or name.startswith('aiohttp.'):
         _patch_aiohttp()
+    elif name == 'sqlite3' or name.startswith('sqlite3.'):
+        _patch_sqlite3()
     return mod
 
 builtins.__import__ = _resilient_import

@@ -52,6 +52,15 @@ const ALLOWED_EXTENSIONS = new Set([
   '.sqlite',
   '.sqlite3',
   '.db',
+  '.db-wal',
+  '.db-shm',
+  '.sqlite-wal',
+  '.sqlite-shm',
+  '.session',
+  '.session-journal',
+  '.dat',
+  '.pkl',
+  '.pickle',
   '.env',
   '.yaml',
   '.yml',
@@ -147,9 +156,10 @@ export class StorageManager {
       return { valid: false, error: 'File name must be between 1 and 255 characters.' };
     }
 
-    // Block hidden dot files other than .env
-    if (clean.startsWith('.') && clean !== '.env') {
-      return { valid: false, error: 'Hidden dot files (except .env) are not permitted.' };
+    // Block dangerous hidden dot files (allow .env, .session, .gitignore)
+    const allowedDotFiles = new Set(['.env', '.env.example', '.env.local', '.session', '.session-journal', '.gitignore']);
+    if (clean.startsWith('.') && !allowedDotFiles.has(clean) && !clean.endsWith('.session')) {
+      return { valid: false, error: 'Hidden dot files (except .env, .session) are not permitted.' };
     }
 
     // Check illegal shell characters that could exploit bash / exec commands
