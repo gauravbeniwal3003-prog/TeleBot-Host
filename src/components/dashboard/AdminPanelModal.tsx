@@ -462,7 +462,7 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, embed
             }`}
           >
             <CreditCard className="w-4 h-4" />
-            <span>Payments & Refunds ({orders.length})</span>
+            <span>Transactions & Orders ({orders.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('system')}
@@ -1242,6 +1242,40 @@ export const AdminPanelModal: React.FC<AdminPanelModalProps> = ({ onClose, embed
               {/* ======================================================== */}
               {activeTab === 'payments' && (
                 <div className="space-y-4">
+                  {/* Summary Metric Strip */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
+                      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Transactions</div>
+                      <div className="text-xl font-black text-slate-900 mt-1">{orders.length}</div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">All time orders</div>
+                    </div>
+                    <div className="bg-white p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-2xs">
+                      <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider">Paid / Successful</div>
+                      <div className="text-xl font-black text-emerald-700 mt-1">
+                        {orders.filter((o) => o.status === 'success').length}
+                      </div>
+                      <div className="text-[10px] text-emerald-600 mt-0.5">
+                        ₹{orders.filter((o) => o.status === 'success').reduce((acc, o) => acc + (o.total_amount || 0), 0).toLocaleString()} Collected
+                      </div>
+                    </div>
+                    <div className="bg-white p-3.5 rounded-xl border border-amber-200 bg-amber-50/20 shadow-2xs">
+                      <div className="text-[11px] font-semibold text-amber-700 uppercase tracking-wider">Pending Orders</div>
+                      <div className="text-xl font-black text-amber-700 mt-1">
+                        {orders.filter((o) => o.status === 'pending').length}
+                      </div>
+                      <div className="text-[10px] text-amber-600 mt-0.5">Awaiting gateway capture</div>
+                    </div>
+                    <div className="bg-white p-3.5 rounded-xl border border-rose-200 bg-rose-50/20 shadow-2xs">
+                      <div className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider">Failed / Refunded</div>
+                      <div className="text-xl font-black text-rose-700 mt-1">
+                        {orders.filter((o) => o.status === 'failed' || o.status === 'refunded').length}
+                      </div>
+                      <div className="text-[10px] text-rose-600 mt-0.5">
+                        {orders.filter((o) => o.status === 'refunded').length} refunded
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Filters */}
                   <div className="flex flex-col sm:flex-row gap-3 items-center justify-between bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
                     <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">

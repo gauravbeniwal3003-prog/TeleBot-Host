@@ -495,17 +495,30 @@ subscriptionsRouter.post('/orders/verify', requireAuth, async (req: Request, res
               message: `Payment confirmed securely! Subscription active on ${result.subscription.plan_name}.`,
             });
             return;
+          } else {
+            res.status(400).json({
+              error: `Payment is not completed yet on Cashfree (Order Status: ${cfOrder.order_status || 'PENDING'}). Please complete the payment.`,
+              orderStatus: cfOrder.order_status,
+            });
+            return;
           }
+        } else {
+          const errText = await response.text();
+          console.error('[Cashfree Verify] Gateway responded with error:', errText);
+          res.status(400).json({ error: 'Cashfree order verification pending or invalid order ID.' });
+          return;
         }
       } catch (cfErr: any) {
         console.error('[Cashfree Verify Error]', cfErr);
+        res.status(500).json({ error: `Cashfree verification failed: ${cfErr.message}` });
+        return;
       }
     }
 
-    // Instant verification fallback for sandbox / direct payment confirmation
+    // Instant verification fallback for sandbox test environments without API keys
     const result = db.verifyAndCompleteOrder(
       orderId, 
-      paymentMethod || 'cashfree_gateway_verified', 
+      paymentMethod || 'sandbox_test_verified', 
       paymentId || ('cf_pay_' + Date.now())
     );
 
