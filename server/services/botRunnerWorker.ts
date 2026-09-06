@@ -381,7 +381,7 @@ export class BotRunnerWorker extends EventEmitter {
     try {
       const srcHook = path.join(hooksDir, 'sitecustomize.py');
       const dstHook = path.join(botDir, 'sitecustomize.py');
-      if (fs.existsSync(srcHook) && !fs.existsSync(dstHook)) {
+      if (fs.existsSync(srcHook)) {
         fs.copyFileSync(srcHook, dstHook);
       }
     } catch {}

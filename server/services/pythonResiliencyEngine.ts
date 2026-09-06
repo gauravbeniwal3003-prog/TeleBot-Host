@@ -13,11 +13,6 @@ export class PythonResiliencyEngine {
   private static hooksDir: string | null = null;
 
   public static getHooksDir(): string {
-    if (this.hooksDir && fs.existsSync(this.hooksDir)) {
-      return this.hooksDir;
-    }
-
-    // Use standard host path if writable, otherwise fallback to OS tmp directory
     const preferredPath = '/opt/telebot-host/runtime_hooks';
     let targetDir = preferredPath;
     try {
@@ -86,47 +81,80 @@ def _patch_telegram():
         return
     _patched_modules.add('telegram')
     try:
+        import inspect
         import telegram
-        # Patch HTTPXRequest default parameters (connect_timeout, read_timeout, write_timeout, pool_timeout)
+        # Patch HTTPXRequest default parameters and absorb incompatible arguments like 'http_client'
+        req_classes = []
         if hasattr(telegram, 'request') and hasattr(telegram.request, 'HTTPXRequest'):
-            _OrigReq = telegram.request.HTTPXRequest
-            _orig_req_init = _OrigReq.__init__
-            def _resilient_req_init(self, *args, **kwargs):
-                if 'connect_timeout' not in kwargs or kwargs['connect_timeout'] is None or kwargs['connect_timeout'] == 5.0:
-                    kwargs['connect_timeout'] = 60.0
-                if 'read_timeout' not in kwargs or kwargs['read_timeout'] is None or kwargs['read_timeout'] == 5.0:
-                    kwargs['read_timeout'] = 60.0
-                if 'write_timeout' not in kwargs or kwargs['write_timeout'] is None or kwargs['write_timeout'] == 5.0:
-                    kwargs['write_timeout'] = 60.0
-                if 'pool_timeout' not in kwargs or kwargs['pool_timeout'] is None or kwargs['pool_timeout'] == 1.0:
-                    kwargs['pool_timeout'] = 60.0
-                return _orig_req_init(self, *args, **kwargs)
-            _OrigReq.__init__ = _resilient_req_init
+            req_classes.append(telegram.request.HTTPXRequest)
+        try:
+            import telegram.request._httpxrequest as _thttpx
+            if hasattr(_thttpx, 'HTTPXRequest') and _thttpx.HTTPXRequest not in req_classes:
+                req_classes.append(_thttpx.HTTPXRequest)
+        except Exception:
+            pass
+
+        for req_cls in req_classes:
+            _orig_req_init = req_cls.__init__
+            def _make_resilient_init(original_init):
+                def _resilient_req_init(self, *args, **kwargs):
+                    # 1. Safely pop unsupported arguments that users or online snippets sometimes pass
+                    custom_client = kwargs.pop('http_client', None) or kwargs.pop('client', None)
+                    if 'connect_timeout' not in kwargs or kwargs['connect_timeout'] is None or kwargs['connect_timeout'] == 5.0:
+                        kwargs['connect_timeout'] = 60.0
+                    if 'read_timeout' not in kwargs or kwargs['read_timeout'] is None or kwargs['read_timeout'] == 5.0:
+                        kwargs['read_timeout'] = 60.0
+                    if 'write_timeout' not in kwargs or kwargs['write_timeout'] is None or kwargs['write_timeout'] == 5.0:
+                        kwargs['write_timeout'] = 60.0
+                    if 'pool_timeout' not in kwargs or kwargs['pool_timeout'] is None or kwargs['pool_timeout'] == 1.0:
+                        kwargs['pool_timeout'] = 60.0
+                    try:
+                        original_init(self, *args, **kwargs)
+                    except TypeError:
+                        # If unexpected keyword arguments still exist, filter them against the method's signature
+                        try:
+                            sig = inspect.signature(original_init)
+                            valid_kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                            original_init(self, *args, **valid_kwargs)
+                        except Exception:
+                            # Fallback without extra kwargs
+                            original_init(self, *args)
+                    if custom_client is not None and hasattr(self, '_client'):
+                        try:
+                            self._client = custom_client
+                        except Exception:
+                            pass
+                    return None
+                return _resilient_req_init
+            req_cls.__init__ = _make_resilient_init(_orig_req_init)
 
         # Patch ApplicationBuilder so default builder uses resilient request config
-        from telegram.ext._applicationbuilder import ApplicationBuilder
-        _orig_app_build = ApplicationBuilder.build
-        def _resilient_app_build(self):
-            if getattr(self, '_request', None) is None:
-                import telegram.request
-                self.request(telegram.request.HTTPXRequest(
-                    connect_timeout=60.0,
-                    read_timeout=60.0,
-                    write_timeout=60.0,
-                    pool_timeout=60.0,
-                    connection_pool_size=8
-                ))
-            if getattr(self, '_get_updates_request', None) is None:
-                import telegram.request
-                self.get_updates_request(telegram.request.HTTPXRequest(
-                    connect_timeout=60.0,
-                    read_timeout=60.0,
-                    write_timeout=60.0,
-                    pool_timeout=60.0,
-                    connection_pool_size=8
-                ))
-            return _orig_app_build(self)
-        ApplicationBuilder.build = _resilient_app_build
+        try:
+            from telegram.ext._applicationbuilder import ApplicationBuilder
+            _orig_app_build = ApplicationBuilder.build
+            def _resilient_app_build(self):
+                if getattr(self, '_request', None) is None:
+                    import telegram.request
+                    self.request(telegram.request.HTTPXRequest(
+                        connect_timeout=60.0,
+                        read_timeout=60.0,
+                        write_timeout=60.0,
+                        pool_timeout=60.0,
+                        connection_pool_size=8
+                    ))
+                if getattr(self, '_get_updates_request', None) is None:
+                    import telegram.request
+                    self.get_updates_request(telegram.request.HTTPXRequest(
+                        connect_timeout=60.0,
+                        read_timeout=60.0,
+                        write_timeout=60.0,
+                        pool_timeout=60.0,
+                        connection_pool_size=8
+                    ))
+                return _orig_app_build(self)
+            ApplicationBuilder.build = _resilient_app_build
+        except Exception:
+            pass
 
         # Patch network retry loop to allow retries on initial getMe / initialize handshake
         try:
